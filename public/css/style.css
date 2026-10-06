@@ -2547,3 +2547,56 @@ body.car-solo .car-view{padding:8px 3px}
   .pausecard.wide{min-width:0; width:100%}
   .pausecard{padding:22px 18px}
 }
+
+/* ============================================================
+   13. 作者水印（深蓝书签）
+   ------------------------------------------------------------
+   固定在左下角的小书签：牌子叫「深蓝书签」，就真做成一枚深蓝
+   书签缎带 —— 下摆中间向上收一个燕尾口（clip-path 三角缺口）。
+     · 点书签名 → 打开 B 站主页 space.bilibili.com/484110391
+     · 点粉丝群 → 复制群号 1124017564
+   容器 pointer-events:none，只有两个控件本身可点，
+   永远不挡底下界面的任何点击；层级 700 压在内容之上、
+   弹窗(800)/特效(940)/Toast(950)之下。
+   ============================================================ */
+.wm{
+  position:fixed; left:12px; bottom:12px; z-index:700;
+  display:flex; flex-direction:column; align-items:flex-start; gap:7px;
+  pointer-events:none;
+}
+.wm-tag{
+  pointer-events:auto;
+  display:inline-block; line-height:1;
+  padding:6px 15px 14px;
+  font-size:13px; font-weight:800; letter-spacing:3px;
+  color:#f0f5ff; text-decoration:none;
+  background:linear-gradient(180deg, #3a5ca8 0%, #263f79 62%, #1c2f5e 100%);
+  clip-path:polygon(0 0, 100% 0, 100% 100%, 50% calc(100% - 8px), 0 100%);
+  filter:drop-shadow(0 3px 9px rgba(28,47,94,.35));
+  transition:transform .14s, filter .14s;
+}
+.wm-tag:hover{
+  transform:translateY(-2px);
+  filter:drop-shadow(0 6px 14px rgba(28,47,94,.45));
+  color:#fff;
+}
+.wm-sub{
+  pointer-events:auto;
+  font:inherit; font-size:10.5px; letter-spacing:1.2px;
+  color:var(--dim); background:none; border:0; padding:1px 3px;
+  cursor:pointer;
+  transition:color .14s;
+}
+.wm-sub:hover{color:var(--ink); text-decoration:underline}
+
+/* 标题屏的跑马灯铺满整个窗口底部，水印抬到它上方，别压住滚动字幕
+   （跑马灯高约 29px + 屏幕内边距 26px，取 64px 稳妥） */
+body:has(#s-title.show) .wm{bottom:64px}
+
+/* 超矮窗口：整体收一号 */
+@media (max-height:560px){
+  .wm{left:8px; bottom:8px; gap:5px}
+  body:has(#s-title.show) .wm{bottom:58px}
+  .wm-tag{font-size:11.5px; padding:4px 11px 11px; letter-spacing:2px}
+  .wm-sub{font-size:9.5px}
+}

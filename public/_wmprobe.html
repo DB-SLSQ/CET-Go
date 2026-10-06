@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>wmprobe</title>
+<style>html,body{margin:0;background:#111;color:#0f0;font:13px/1.6 Consolas,monospace}
+iframe{position:absolute;left:-4000px;top:0}
+pre{padding:12px}</style></head>
+<body>
+<iframe id="f" src="/"></iframe>
+<pre id="out">running…</pre>
+<script>
+/* 用法： /_wmprobe.html?w=1240&h=900&scene=title
+   水印（.wm）不该压住任何「有字或有按钮」的界面元素。
+   只和真实会同时出现的东西比 —— 水印是 fixed 的，会在每屏都在。 */
+const Q = new URLSearchParams(location.search);
+const VW = parseInt(Q.get('w') || '1240', 10);
+const VH = parseInt(Q.get('h') || '900', 10);
+const SCENE = Q.get('scene') || 'title';
+
+const f = document.getElementById('f');
+f.style.width = VW + 'px';
+f.style.height = VH + 'px';
+const out = document.getElementById('out');
+const lines = [];
+let fail = 0;
+function ok(name, cond, extra) {
+  if (cond) lines.push('  ok ' + name);
+  else { fail++; lines.push('  FAIL ' + name + (extra !== undefined ? '  -> ' + extra : '')); }
+}
+const R = el => el.getBoundingClientRect();
+function inter(a, b) {
+  const w = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+  const h = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+  return (w > 0.5 && h > 0.5) ? Math.round(w) + 'x' + Math.round(h) : null;
+}
+function name(el) {
+  return el.id ? '#' + el.id : (el.className ? '.' + String(el.className).split(' ')[0] : el.tagName);
+}
+
+let tries = 0;
+const iv = setInterval(function () {
+  tries++;
+  let w, d;
+  try { w = f.contentWindow; d = f.contentDocument; } catch (e) { return; }
+  if (!w || !d || !w.App || !w.App.Words || !w.App.Words.loaded || !d.querySelector('#s-title')) {
+    if (tries > 200) { clearInterval(iv); document.title = 'TIMEOUT'; }
+    return;
+  }
+  clearInterval(iv);
+  Promise.resolve()
+    .then(function () { return run(w, d); })
+    .then(function () { document.title = 'OK ' + SCENE + ' ' + VW + 'x' + VH + ' fail=' + fail; },
+          function (e) { document.title = 'ERR ' + e.message; });
+}, 50);
+
+function run(w, d) {
+  const App = w.App;
+  const st = d.createElement('style');
+  st.textContent = '*,*::before,*::after{animation:none!important;transition:none!important}';
+  d.head.appendChild(st);
+
+  if (SCENE === 'game') {
+    App._show('s-title'); App._renderTitle();
+    App.startFlow('classic'); App.confirmReady();
+    App.paintApproach(0.35); App.fitVerse();
+  } else if (SCENE === 'over') {
+    App._show('s-title'); App._renderTitle();
+    App.startFlow('classic'); App.confirmReady();
+    App.paintApproach(0.35); App.fitVerse();
+    App.onTimeout(); App.onTimeout(); App.onTimeout();
+  } else {
+    App._show('s-title'); App._renderTitle();
+  }
+
+  const wm = d.getElementById('wm');
+  ok('水印存在', !!wm);
+  if (!wm) return;
+  const r = R(wm);
+  lines.push('  水印矩形 ' + [r.left, r.top, r.right, r.bottom].map(v => Math.round(v)).join(', '));
+
+  // ① 必须完整落在窗口里（不能有一角被切掉）
+  ok('水印完整在视口内',
+    r.left >= 0 && r.top >= 0 && r.right <= VW + 0.5 && r.bottom <= VH + 0.5,
+    [r.left, r.top, r.right, r.bottom].join(','));
+
+  // ② 两个字面控件都点得到（不能有东西盖在上面）
+  ['wm-tag', 'wm-sub'].forEach(function (cls) {
+    const t = d.querySelector('.' + cls);
+    const rr = R(t);
+    const cx = (rr.left + rr.right) / 2, cy = (rr.top + rr.bottom) / 2;
+    const hit = d.elementFromPoint(cx, cy);
+    ok('.' + cls + ' 中心点可点', !!hit && (hit === t || t.contains(hit) || hit.contains(t)),
+      hit ? name(hit) : 'null');
+  });
+
+  // ③ 别压住「有字或有按钮」的东西
+  // 注意不能用 .car-dots / .ticker-run 这类「撑满一行的容器」当对象：
+  // 它们的盒子和可见内容不重合（圆点居中、容器全宽），拿盒子比会误报。
+  // 只比真正的可见单元（.car-dot 单颗圆点、具体按钮、具体文字块）。
+  const targets = d.querySelectorAll(
+    '.ticker, .ttl-tools .tool-pill, .cf-info, #cfBest, #cfPlays, #btnDecide,' +
+    '.car-arrow, .car-dot, .hud, .hud-cell, .timebar, .answer-row, #gInput, #btnSubmit,' +
+    '.ops .btn, .card, .readycard, .over-ops .btn, .over-head, .over-grid, .ow-list,' +
+    '.set-list, .pg-title, #chara, .toast, .pausecard'
+  );
+  let hitList = [];
+  targets.forEach(function (t) {
+    if (t.hidden) return;
+    const cs = getComputedStyle(t);
+    if (cs.display === 'none' || cs.visibility === 'hidden') return;
+    if (t.closest && t.closest('.wm')) return;
+    const tr = R(t);
+    const a = inter(r, tr);
+    if (a) {
+      hitList.push(name(t) + '(' + a + ' @ ' +
+        [tr.left, tr.top, tr.right, tr.bottom].map(v => Math.round(v)).join(',') + ')');
+    }
+  });
+  ok('水印不压任何文字/按钮', hitList.length === 0, hitList.join(' '));
+
+  const res = d.createElement('pre');
+  res.textContent = lines.join('\n');
+  d.body.appendChild(res);
+  out.textContent = lines.join('\n');
+}
+</script>
+</body></html>

@@ -106,6 +106,7 @@ bash tools/shot.sh              # 各屏幕截图工作台
 |---|---|
 | `_gprobe.html` | 各屏在 15 种窗口尺寸下**不溢出**（含「贴脸放大」那一帧的最坏情况） |
 | `_itest.html` | 主页交互：轮播、翻卡、开局、判定规则（重试/超时/字母数）、按钮尺寸、存档落盘 |
+| `_wmprobe.html` | 左下角作者水印：完整在视口内、两个字面控件点得到、不压住任何文字或按钮 |
 | `_shot.html` · `_m.html` | 截图与盒模型排查 |
 
 结论写进页面 `<title>`，用 `--dump-dom` 抓出来比对。**断言只写「真实会出现的状态」** —— 比如「最长的单个词条」，而不是「最长释义 + 最长单词」这种拼出来的组合，否则红线没人能修。
@@ -114,14 +115,12 @@ bash tools/shot.sh              # 各屏幕截图工作台
 
 - **`.verse` 的高度不能用 `scrollHeight`**：题面背后那块柔光是 180% 高的绝对定位元素，会把 `scrollHeight` 顶到布局盒的 1.4 倍。拿它算「需要多少高度」等于每道题都多缩 40%。要用 `offsetHeight`，并且取舞台的**内容盒**。
 - **`will-change:transform` 会改 `offsetParent`**：轮播轨道加了它之后，子元素的 `offsetLeft` 参照系就变了，居中量要按 `getBoundingClientRect` 的中心差重算。
-- **`aapt2 link` 的主资源必须是位置参数**：用 `-R res.zip` 传会被当成 overlay，报 `resource style/AppTheme does not override an existing resource`。
-- **`resources.arsc` 不能压缩**：targetSdk 30+ 要求它 store 进 APK。`jar uf` 会重写整个归档并重新压缩它 —— 得用 Python `zipfile` 的 `'a'` 模式只追加。
-- **WebView 里不能用 `file://`**：不透明来源会让 `fetch` 被 CORS 拦、`localStorage` 直接不可用。改成给 WebView 一个假域名，在 `shouldInterceptRequest` 里把整棵路径映射到 assets。
-- **系统「字体大小」会改 WebView 默认字号**，`clamp()` 算出来的题面尺寸全废 —— 得 `setTextZoom(100)`。
-- **XML 注释里不能有两个连续的减号**，`aapt2` 会报 `not well-formed`。
+- **碰撞检测不能用「撑满一行的容器」当对象**：模式指示点 `.car-dots` 是全宽 flex（圆点居中），拿它的盒子去比，水印永远被判成压住了它 —— 要比就比真正的可见单元 `.car-dot`。
 - **同名缩写词的句点**：`a.m` / `B.C.` 这类词的句点在提示掩码里必须**直接亮出来**而不是混进待填槽 —— 判分不忽略句点（`am` 是错的），句点若占一个槽，槽位数就比「N 字母」多，玩家按槽去数必错。
+- **水印别跟着界面元素走**：`.wm` 是 `position:fixed`、`pointer-events:none`（只给字面控件开），层级压在内容之上、弹窗之下；标题屏底下那条跑马灯是满宽贴底的，所以用 `body:has(#s-title.show) .wm{bottom:64px}` 把它抬到跑马灯上方。
 
 ## 说明
 
 - 词库是 CET4 / CET6 词汇表；背景与看板娘立绘为 AI 生成。
+- 作者：**深蓝书签** · B站 [space.bilibili.com/484110391](https://space.bilibili.com/484110391) · 粉丝群 **1124017564**
 - 未指定开源许可；代码随意取用。

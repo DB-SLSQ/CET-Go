@@ -1589,8 +1589,35 @@ function bindEvents() {
       '<b>四档难度</b>：普通 / 困难 / 激难 / 地狱 —— 决定时限、命数、提示次数和词长。',
       '<b>题量</b>：7 / 10 / 16 题，答完就是通关。',
       '',
-      '错过的词会自动进「错题本」，可一键重练。'
+      '错过的词会自动进「错题本」，可一键重练。',
+      '',
+      '出品：<b>深蓝书签</b> · <a href="https://space.bilibili.com/484110391" target="_blank" rel="noopener">space.bilibili.com/484110391</a><br>粉丝群：<b>1124017564</b>（左下角水印点击即复制）'
     ].join('<br>'));
+  };
+
+  // 作者水印：点「粉丝群」复制群号（127.0.0.1 是安全上下文走剪贴板 API，
+  // 局域网 IP 分享时不是 https，得退回 execCommand 兜底）
+  $('#wmGroup').onclick = async function () {
+    SFX.click();
+    const num = '1124017564';
+    let copied = false;
+    try {
+      await navigator.clipboard.writeText(num);
+      copied = true;
+    } catch (e) {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = num;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        copied = document.execCommand('copy');
+        ta.remove();
+      } catch (e2) { copied = false; }
+    }
+    if (copied) toast('粉丝群号已复制：' + num);
+    else toast('复制失败，群号：' + num, true);
   };
 
   // 准备屏
