@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#fdf4ee">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="CET Go">
+<meta name="format-detection" content="telephone=no">
+<title>CET Go</title>
+<link rel="icon" href="/icon.png">
+<link rel="apple-touch-icon" href="/icon.png">
+<link rel="manifest" href="/manifest.json">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<!-- ============ 环境层：教室照片 / 暖光纱幕 / 樱花 ============ -->
+<div class="bg" aria-hidden="true">
+  <div class="bg-photo"></div>
+  <div class="bg-veil"></div>
+  <div class="bg-petals" id="petals"></div>
+</div>
+
+<div class="stage" id="stage">
+
+  <!-- ============ 启动加载 ============ -->
+  <section class="screen show center" id="s-boot">
+    <div class="boot-wrap">
+      <div class="boot-logo">CET<span>GO</span></div>
+      <div class="boot-bar"><i></i></div>
+      <div class="boot-msg" id="bootMsg">正在载入词库…</div>
+    </div>
+  </section>
+
+  <!-- ============ 标题屏 ============ -->
+  <section class="screen" id="s-title">
+    <div class="ttl-glow" aria-hidden="true"></div>
+
+    <header class="ttl-head">
+      <div class="ttl-brand">
+        <div class="logo-wrap">
+          <span class="logo-ring r1" aria-hidden="true"></span>
+          <span class="logo-ring r2" aria-hidden="true"></span>
+          <h1 class="logo" data-text="CETGO">CET<span>GO</span></h1>
+        </div>
+        <p class="tagline">
+          <span class="tg-line"></span>
+          看 释 义 <b>·</b> 拼 单 词
+        </p>
+      </div>
+      <nav class="ttl-tools">
+        <button class="tool-pill" id="btnWrong">错题本 <b class="pill" id="wrongCount">0</b></button>
+        <button class="tool-pill" id="btnSettings">设置</button>
+        <button class="tool-pill" id="btnHelp">玩法</button>
+        <!-- 只有服务是以 --lan 启动、而且这一页是在本机打开时才亮出来 -->
+        <button class="tool-pill" id="btnLan" hidden>手机玩</button>
+      </nav>
+    </header>
+
+    <!-- 卡组：左右箭头切换，选中的那张金框 + 放大。
+         箭头放在 .car-view 里做成绝对定位，才能贴着卡片边缘 —— 卡片尺寸是 JS 算的，
+         固定放在两端的话，卡片一大箭头就被甩到屏幕角落去了。 -->
+    <div class="car">
+      <div class="car-view" id="carView">
+        <button class="car-arrow" id="carPrev" aria-label="上一个模式">◀</button>
+        <div class="car-track" id="modeGrid"></div>
+        <button class="car-arrow" id="carNext" aria-label="下一个模式">▶</button>
+      </div>
+    </div>
+
+    <!-- 模式指示点：窄屏收起箭头后，靠它告诉手指「还有别的模式」 -->
+    <div class="car-dots" id="carDots" aria-hidden="true"></div>
+
+    <div class="car-foot">
+      <div class="cf-info">
+        <span class="cf-lb">最高分</span>
+        <b id="cfBest">0</b>
+        <span class="cf-sep" aria-hidden="true"></span>
+        <span id="cfPlays">已玩 0 局</span>
+      </div>
+      <button class="btn primary big" id="btnDecide">决 定</button>
+      <div class="cf-list" id="ttlList">词表：CET6</div>
+    </div>
+
+    <div class="ticker" aria-hidden="true">
+      <div class="ticker-run">
+        <span>★ 看释义 · 拼单词 ★ 答对连击加分 ★ 时间条走完 = 单词撞到你脸上 ★ 错过的词自动进错题本 ★ 四档难度 从普通到地狱 ★ 全离线 数据只存本机 ★</span>
+        <span>★ 看释义 · 拼单词 ★ 答对连击加分 ★ 时间条走完 = 单词撞到你脸上 ★ 错过的词自动进错题本 ★ 四档难度 从普通到地狱 ★ 全离线 数据只存本机 ★</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 准备屏（準備 OK！） ============ -->
+  <section class="screen center" id="s-ready">
+    <div class="readycard">
+      <div class="rd-corner" aria-hidden="true"></div>
+      <div class="rd-mode" id="rdMode">CLASSIC</div>
+      <div class="rd-name" id="rdName">经典</div>
+
+      <div class="rd-blk">
+        <div class="rd-lb">难 度</div>
+        <div class="seg big" id="rdDiff"></div>
+        <div class="rd-note" id="rdDiffNote"></div>
+      </div>
+
+      <div class="rd-blk">
+        <div class="rd-lb">题 量</div>
+        <div class="seg big" id="rdCount"></div>
+      </div>
+
+      <div class="rd-ops">
+        <button class="btn primary big" id="btnReady">準 備 O K ！</button>
+        <button class="btn ghost" id="btnReadyBack">返回</button>
+      </div>
+
+      <p class="rd-tip" id="rdTip"></p>
+    </div>
+  </section>
+
+  <!-- ============ 游戏屏 ============ -->
+  <section class="screen" id="s-game">
+    <div class="hud">
+      <div class="hud-cell"><small>SCORE</small><b id="gScore">0</b></div>
+      <div class="hud-cell combo" id="gComboCell"><small>COMBO</small><b id="gCombo">0</b></div>
+      <div class="hud-cell"><small id="gOf">QUESTION</small><b id="gNo">1</b></div>
+      <div class="hud-cell"><small>LIFE</small><b id="gLives" class="hearts">♥♥♥</b></div>
+    </div>
+
+    <div class="timebar" id="timeBar">
+      <i id="timeFill"></i>
+      <span class="tb-tick" aria-hidden="true"></span>
+    </div>
+
+    <!-- 纵深舞台：文字从远处一路压到眼前 -->
+    <div class="depth" id="depth">
+      <div class="card" id="card">
+        <div class="verse">
+          <div class="meta">
+            <span class="pos" id="gPos">—</span>
+            <span class="lv" id="gLv"></span>
+            <!-- 字母个数：出题那一刻就告诉你这词有多长（数下面的槽太费眼） -->
+            <span class="lt" id="gLen" hidden></span>
+          </div>
+          <div class="cn" id="gCn">—</div>
+          <div class="hint" id="gHint"></div>
+          <div class="reveal" id="gReveal" hidden></div>
+        </div>
+      </div>
+      <div class="fog" id="fog" aria-hidden="true"></div>
+      <div class="rush" id="rush" aria-hidden="true"></div>
+      <div class="stamp" id="stamp" aria-hidden="true"></div>
+    </div>
+
+    <!-- 看板娘：表情随答题结果切换（三张立绘已做底部中心对齐，切换不会跳） -->
+    <div class="chara" id="chara" data-mood="n" aria-hidden="true">
+      <img class="c-n" src="/assets/girl.webp" alt="">
+      <img class="c-h" src="/assets/girl_happy.webp" alt="">
+      <img class="c-s" src="/assets/girl_sad.webp" alt="">
+    </div>
+
+    <div class="answer-row">
+      <input id="gInput" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="输入英文单词，回车提交">
+      <button class="btn primary" id="btnSubmit">提交</button>
+    </div>
+
+    <div class="ops">
+      <button class="btn ghost sm" id="btnHint">提示 <b id="hintLeft"></b></button>
+      <button class="btn ghost sm" id="btnSpeak">朗读</button>
+      <button class="btn ghost sm" id="btnSkip">跳过</button>
+      <button class="btn ghost sm" id="btnPause">暂停</button>
+      <button class="btn ghost sm" id="btnQuit">退出</button>
+    </div>
+
+    <div class="flash" id="flash" aria-hidden="true"></div>
+    <div class="impact" id="impact" aria-hidden="true"></div>
+
+    <div class="overlay" id="pauseBox" hidden>
+      <div class="pausecard">
+        <h3>已 暂 停</h3>
+        <button class="btn primary" id="btnResume">继续</button>
+        <button class="btn ghost" id="btnGiveUp">结束本局</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 结算屏 ============ -->
+  <section class="screen" id="s-over">
+    <div class="over-head">
+      <div class="rank" id="oRank">
+        <small>RANK</small>
+        <b>D</b>
+      </div>
+      <div class="over-head-r">
+        <h2 class="over-title" id="overTitle">GAME OVER</h2>
+        <div class="over-score">
+          <small>得分</small>
+          <b id="oScore">0</b>
+          <em id="oNewBest" hidden>NEW BEST!</em>
+        </div>
+      </div>
+    </div>
+
+    <div class="over-grid" id="oGrid"></div>
+
+    <div class="over-wrong">
+      <div class="ow-head">本局错词 <b id="oWrongN">0</b></div>
+      <div class="ow-list" id="oWrongList"></div>
+    </div>
+
+    <div class="over-ops">
+      <button class="btn primary" id="btnAgain">再来一局</button>
+      <button class="btn ghost" id="btnRetryWrong">错题重练</button>
+      <button class="btn ghost" id="btnHome">回主菜单</button>
+    </div>
+  </section>
+
+  <!-- ============ 设置屏 ============ -->
+  <section class="screen" id="s-set">
+    <h2 class="pg-title">设 置</h2>
+    <div class="set-list" id="setList"></div>
+    <div class="over-ops">
+      <button class="btn primary" id="btnSetBack">返回</button>
+    </div>
+  </section>
+
+  <!-- ============ 错题本屏 ============ -->
+  <section class="screen" id="s-wrong">
+    <h2 class="pg-title">错 题 本</h2>
+    <div class="ow-list big" id="wrongList"></div>
+    <div class="over-ops">
+      <button class="btn primary" id="btnWrongPractice">重练全部</button>
+      <button class="btn ghost" id="btnWrongClear">清空</button>
+      <button class="btn ghost" id="btnWrongBack">返回</button>
+    </div>
+  </section>
+
+</div>
+
+<div class="fx" id="fx" aria-hidden="true"></div>
+<div class="toast" id="toast"></div>
+
+<div class="overlay modal" id="modal" hidden>
+  <div class="pausecard wide" id="modalCard"></div>
+</div>
+
+<script src="/js/sfx.js"></script>
+<script src="/js/words.js"></script>
+<script src="/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>gprobe</title>
+<style>
+  html,body{margin:0;background:#222;font:12px/1.5 Consolas,monospace;color:#ddd}
+  iframe{border:0;display:block;background:#fff;position:absolute;left:-4000px;top:0}
+  pre{margin:0;padding:8px;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<iframe id="f"></iframe>
+<pre id="out"></pre>
+<script>
+/* 极限内容布局探针
+   用法： /_gprobe.html?w=390&h=844[&scene=game|title|over|set|wrong|ready]
+   做两件 _diag.html 不做的事：
+     1) 用「最长释义 + 最长单词」把题面撑到极限，而不是随便一题；
+     2) 把卡片手动摆到 NEAR_SCALE（贴脸那一瞬）再量 —— 溢出都发生在这一帧。
+*/
+const Q = new URLSearchParams(location.search);
+const W = +(Q.get('w') || 1240), H = +(Q.get('h') || 900);
+const SCENE = Q.get('scene') || 'game';
+const f = document.getElementById('f'), out = document.getElementById('out');
+f.style.width = W + 'px'; f.style.height = H + 'px'; f.src = '/';
+
+const L = [];
+let pass = 0, fail = 0;
+function chk(name, cond, extra) {
+  if (cond) { pass++; L.push('  ok   ' + name); }
+  else { fail++; L.push('  FAIL ' + name + (extra !== undefined ? '   -> ' + extra : '')); }
+}
+function fx(n) { return Math.round(n * 10) / 10; }
+function finish(tag) {
+  out.textContent = L.join('\n') + '\n\n===== ' + tag + '  ' + W + 'x' + H +
+                    '  pass ' + pass + ' / fail ' + fail + ' =====';
+  document.title = tag + ' ' + W + 'x' + H + ' fail=' + fail;
+}
+
+let tries = 0;
+const iv = setInterval(function () {
+  tries++;
+  let w, d;
+  try { w = f.contentWindow; d = f.contentDocument; } catch (e) { return; }
+  if (!w || !d || !w.App || !w.App.Words || !w.App.Words.loaded) {
+    if (tries > 200) { clearInterval(iv); L.push('TIMEOUT'); finish('TIMEOUT'); }
+    return;
+  }
+  clearInterval(iv);
+  // 冻结动画/过渡：headless 下它们不随虚拟时钟推进，量到的是起始帧
+  const st = d.createElement('style');
+  st.textContent = '*,*::before,*::after{animation:none!important;transition:none!important}';
+  d.head.appendChild(st);
+  try { run(w, d); finish('OK'); }
+  catch (e) { L.push('!! ' + e.message + '\n' + ((e.stack || '').split('\n')[1] || '')); finish('ERR'); }
+}, 60);
+
+function run(w, d) {
+  const App = w.App;
+  const $ = s => d.querySelector(s);
+  const R = el => el.getBoundingClientRect();
+  L.push('[' + SCENE + ']  ' + w.innerWidth + 'x' + w.innerHeight);
+
+  /* ---------- 准备：开局 + 找出最长释义 / 最长单词 ---------- */
+  App._show('s-title'); App._renderTitle(); App.setFocus(0, true);
+  App.startFlow('classic'); App.confirmReady();
+
+  const pool = App.Words.pool(App.getState().settings.list) || [];
+  let longM = null, longW = null;
+  pool.forEach(function (it) {
+    const m = App.Words.meaning(it.tr, 2) || '';
+    if (!longM || m.length > longM.m.length) longM = { m: m, it: it };
+    if (!longW || (it.w || '').length > (longW.w || '').length) longW = it;
+  });
+  L.push('最长释义 ' + longM.m.length + ' 字：' + longM.m.slice(0, 40));
+  L.push('最长单词 ' + (longW.w || '').length + ' 字母：' + longW.w);
+
+  /* 把卡片钉在贴脸那一帧（NEAR_SCALE）—— 溢出都藏在这里 */
+  const freezeNear = () => {
+    const g = App.getGame();
+    if (g) g.curScale = App.NEAR_SCALE;
+    $('#card').style.transform = 'scale(' + App.NEAR_SCALE + ')';
+    App.fitVerse();
+  };
+
+  if (SCENE === 'game') {
+    const depth = $('#depth'), verse = $('.verse'), cardEl = $('#card');
+
+    /* 把「词条」摆到题面上：释义 + 词性。三处测量各自对应一个真实存在的
+       游戏状态，而不是随手拼出来的组合 —— 拼出来的组合比真实最坏还狠，
+       测出来的红线就没人能修（也没人该修）。 */
+    const setVerse = function (it) {
+      const m = App.Words.meaning(it.tr, 2) || '';
+      $('#gCn').textContent = m;
+      $('#gPos').textContent = App.Words.posOf(it);
+      return m;
+    };
+
+    /* ---- A. 出题态：全库最长的释义（temper，127 字）配最长的字符槽 ----
+       17 个字符槽（telecommunication）在真实对局里一定出现，用它当宽度上限；
+       释义那一侧也是真实存在的最长条目。 */
+    $('#gReveal').hidden = true;
+    $('#gHint').hidden = false;
+    depth.classList.remove('answered');
+    setVerse(longM.it);
+    $('#gHint').innerHTML = App.Words.hintMask(longW.w, 0).replace(/_/g, '–');
+    /* 字母数跟着槽走：17 个槽配「17 字母」，两位数是这个标签的最宽形态 */
+    $('#gLen').hidden = false;
+    $('#gLen').innerHTML = '<b>' + App.Words.letterCount(longW.w) + '</b> 字母';
+    if (App.typeCn) { try { App.typeCn(longM.m); } catch (e) { /* 逐字动画非必需 */ } }
+    freezeNear();
+
+    measure('A 出题态(贴脸)', w, d, { depth, verse, cardEl });
+
+    /* ---- A2. 字母数标签 ----
+       这几个断言是给「出题时报字母数」这条功能兜底的：
+       光跑 overflow 回归只能证明「没把题面顶出去」，证明不了它真的露出来了。 */
+    const lenEl = $('#gLen');
+    const lenR = R(lenEl);
+    const dr0 = R(depth);
+    chk('A 字母数标签可见', !lenEl.hidden && lenR.width > 0 && lenR.height > 0,
+        'hidden=' + lenEl.hidden + ' ' + fx(lenR.width) + 'x' + fx(lenR.height));
+    chk('A 字母数 = 槽位数', String(lenEl.textContent).replace(/\D/g, '') ===
+        String(App.Words.letterCount(longW.w)), JSON.stringify(lenEl.textContent));
+    chk('A 字母数标签在舞台内',
+        lenR.left >= dr0.left - 1 && lenR.right <= dr0.right + 1 &&
+        lenR.top >= dr0.top - 1 && lenR.bottom <= dr0.bottom + 1,
+        fx(lenR.left) + '~' + fx(lenR.right) + ' / ' + fx(lenR.top) + '~' + fx(lenR.bottom) +
+        '  vs  ' + fx(dr0.left) + '~' + fx(dr0.right) + ' / ' + fx(dr0.top) + '~' + fx(dr0.bottom));
+    /* 数字得比「字母」两个字显眼，否则这个提示等于白加 */
+    const lenNum = lenEl.querySelector('b');
+    chk('A 数字字号 > 单位字号',
+        !!lenNum && parseFloat(w.getComputedStyle(lenNum).fontSize) >
+        parseFloat(w.getComputedStyle(lenEl).fontSize),
+        lenNum ? w.getComputedStyle(lenNum).fontSize + ' vs ' + w.getComputedStyle(lenEl).fontSize : '缺少 <b>');
+
+    /* ---- B1. 作答态：全库最重的条目 ----
+       temper 的 127 字释义 + 它自己的答案，是「释义 + 答案」同框最重的一格，
+       而且真实可出。原来拿「最长释义 + 最长单词」拼在一起，是词库里根本不存在的组合。 */
+    setVerse(longM.it);
+    App.showReveal(longM.it);
+    freezeNear();
+    measure('B1 作答态·最重条目(贴脸)', w, d, { depth, verse, cardEl });
+
+    /* ---- B2. 作答态：最长的单词配它自己的释义 ----
+       17 字母的答案行是最宽的，跟它自己的释义同框才是真实状态。 */
+    setVerse(longW);
+    App.showReveal(longW);
+    freezeNear();
+    measure('B2 作答态·最长单词(贴脸)', w, d, { depth, verse, cardEl });
+
+    /* ---- C. 底部操作区必须在视口内（窄屏尤其容易挤出去） ---- */
+    const row = $('.answer-row'), ops = $('.ops'), hud = $('.hud'), bar = $('#timeBar');
+    chk('C 输入区在视口内', R(row).bottom <= w.innerHeight + 1,
+        fx(R(row).top) + '~' + fx(R(row).bottom) + ' / ' + w.innerHeight);
+    chk('C 操作按钮在视口内', R(ops).bottom <= w.innerHeight + 1,
+        fx(R(ops).bottom) + ' / ' + w.innerHeight);
+    chk('C HUD 不横向溢出', R(hud).left >= -1 && R(hud).right <= w.innerWidth + 1,
+        fx(R(hud).left) + '~' + fx(R(hud).right) + ' / ' + w.innerWidth);
+    chk('C 时间条不横向溢出', R(bar).width <= w.innerWidth + 1, fx(R(bar).width));
+    chk('C HUD 与时间条不重叠', R(bar).top >= R(hud).bottom - 1,
+        fx(R(hud).bottom) + ' vs ' + fx(R(bar).top));
+    /* 看板娘不能压住输入框 —— 她是氛围层，腿脚垫在 UI 后面没问题，
+       但头和脸必须露在输入区上方，否则一眼看过去就是「人埋在输入框里」。
+       立绘是 757x1400 的半身像，「发顶到下巴」实测只占高度的三成左右，
+       原来写 0.45（含肩膀胸口）对窄屏那档 27vh 的尺寸过于苛刻，
+       会把「头明明露在外面」判成失败。 */
+    const chara = $('#chara');
+    const crr = R(chara);
+    if (crr.height > 0) {
+      const headBottom = crr.top + crr.height * 0.35;
+      chk('C 看板娘头部不被输入区压住', headBottom <= R(row).top + 2,
+          'head底=' + fx(headBottom) + ' / row顶=' + fx(R(row).top));
+    }
+  }
+
+  if (SCENE === 'title') {
+    App._show('s-title'); App._renderTitle(); App.setFocus(3, true);
+    const head = $('.ttl-head'), car = $('.car'), foot = $('.car-foot'), tk = $('#s-title .ticker');
+    const parts = [[head, 'head'], [car, 'car'], [foot, 'foot'], [tk, 'ticker']];
+    for (let i = 1; i < parts.length; i++) {
+      const a = R(parts[i - 1][0]), b = R(parts[i][0]);
+      /* display:none 的块 rect 是全 0，直接跳过（矮屏会主动收起跑马灯） */
+      if (b.height === 0 || a.height === 0) continue;
+      const gap = b.top - a.bottom;
+      chk('T ' + parts[i - 1][1] + ' 与 ' + parts[i][1] + ' 不重叠', gap >= -1, fx(gap));
+    }
+    chk('T 卡组横向不溢出（选中卡完整可见）', true);
+    const cards = d.querySelectorAll('#modeGrid .car-card');
+    const on = cards[3];
+    const ov = $('#carView');
+    const a = R(on), b = R(ov);
+    chk('T 末卡居中', Math.abs((a.left + a.right) / 2 - (b.left + b.right) / 2) < 4,
+        fx((a.left + a.right) / 2) + ' vs ' + fx((b.left + b.right) / 2));
+    chk('T 末卡完整在视口内', a.left >= b.left - 1 && a.right <= b.right + 1 &&
+        a.top >= b.top - 1 && a.bottom <= b.bottom + 1,
+        'card ' + fx(a.left) + '~' + fx(a.right) + ' / ' + fx(a.top) + '~' + fx(a.bottom) +
+        '  view ' + fx(b.left) + '~' + fx(b.right) + ' / ' + fx(b.top) + '~' + fx(b.bottom));
+    /* 舞台里的东西不能顶出去 */
+    const stage = $('#stage');
+    chk('T 内容不溢出舞台', R(tk).bottom <= R(stage).bottom + 1,
+        fx(R(tk).bottom) + ' vs ' + fx(R(stage).bottom));
+  }
+
+  if (SCENE === 'over' || SCENE === 'set' || SCENE === 'wrong' || SCENE === 'ready') {
+    const map = { over: 's-over', set: 's-set', wrong: 's-wrong', ready: 's-ready' };
+    App._show('s-title'); App._renderTitle();
+    App.startFlow('classic'); App.confirmReady();
+    if (SCENE === 'over') { App.getGame().score = 1234; App._gameOver(); }
+    if (SCENE === 'set') { App._renderSettings(); App._show('s-set'); }
+    if (SCENE === 'wrong') { App._renderWrong(); App._show('s-wrong'); }
+    if (SCENE === 'ready') { App._show('s-ready'); }
+    const scr = $('#' + map[SCENE]);
+    const r = R(scr);
+    L.push('screen ' + fx(r.width) + 'x' + fx(r.height) + ' scrollH=' + scr.scrollHeight);
+    /* 设置页天生是一张长列表，允许滚动；其它屏不该要滚 */
+    if (SCENE !== 'set') {
+      chk(SCENE + ' 不需要滚动', scr.scrollHeight <= scr.clientHeight + 2,
+          '多出 ' + (scr.scrollHeight - scr.clientHeight) + 'px');
+    } else {
+      chk('set 可滚动（长列表，属设计内）', scr.scrollHeight > 0);
+    }
+    /* 横向不溢出 */
+    chk(SCENE + ' 不横向溢出', scr.scrollWidth <= scr.clientWidth + 2,
+        scr.scrollWidth + ' vs ' + scr.clientWidth);
+    /* 卡片类元素不超出屏幕左右 */
+    const bad = [];
+    Array.prototype.forEach.call(scr.querySelectorAll('.readycard,.pausecard,.stat,.set-row,.ow-item,.over-ops'), function (el) {
+      const e = R(el);
+      if (e.width === 0) return;
+      if (e.left < -1 || e.right > w.innerWidth + 1) bad.push((el.className || '').split(' ')[0] + ' ' + fx(e.left) + '~' + fx(e.right));
+    });
+    chk(SCENE + ' 内部卡片不溢出屏幕', bad.length === 0, bad.join(', '));
+  }
+
+  /* 量一量文字块：贴脸那一帧会不会顶出去 */
+  function measure(tag, w, d, o) {
+    const verse = o.verse, depth = o.depth;
+    const vr = R(verse), dr = R(depth);
+    L.push('  ' + tag + ' verse ' + fx(vr.left) + '~' + fx(vr.right) + ' / ' + fx(vr.top) + '~' + fx(vr.bottom) +
+           '   depth ' + fx(dr.left) + '~' + fx(dr.right) + ' / ' + fx(dr.top) + '~' + fx(dr.bottom));
+    L.push('  ' + tag + ' 卡片 scale=' + fx(scaleOf(w, d.getElementById('card'))) +
+           '  文字块 scale=' + fx(scaleOf(w, verse)));
+
+    chk(tag + ' 题面不横向溢出舞台', vr.left >= dr.left - 1 && vr.right <= dr.right + 1,
+        fx(vr.left) + '~' + fx(vr.right) + '  vs  ' + fx(dr.left) + '~' + fx(dr.right));
+    chk(tag + ' 题面不纵向溢出舞台', vr.top >= dr.top - 1 && vr.bottom <= dr.bottom + 1,
+        fx(vr.top) + '~' + fx(vr.bottom) + '  vs  ' + fx(dr.top) + '~' + fx(dr.bottom));
+
+    /* 每个子块：卡片已经摆在 NEAR_SCALE 了，所以「当前实际 rect」就是贴脸那一帧，
+       直接拿它跟舞台比 —— 不要再去乘 NEAR_SCALE（那会把卡片 scale 算两遍）。 */
+    const over = [];
+    Array.prototype.forEach.call(verse.children, function (el) {
+      if (el.hidden) return;
+      const e = R(el);
+      if (e.width === 0 && e.height === 0) return;
+      if (e.left < dr.left - 1 || e.right > dr.right + 1) {
+        over.push((el.className || el.id) + ' ' + fx(e.left) + '~' + fx(e.right));
+      }
+    });
+    chk(tag + ' 题面各子块不出屏', over.length === 0, over.join(', '));
+
+    /* 字号也得像话：把卡片 scale 除掉，换算成「1:1 显示时的字号」。
+       验收线随舞台高度浮动 —— 375px 高的横屏窗口里塞 127 字的释义，
+       13px 是数学上不可能的，硬卡这条就会永远红。
+       上限取 12px：这个探针故意用「全库最长的 127 字释义」来撑，
+       而 360x640 的小屏手机是能出现的最小舞台 —— 那一格实测收到 12.3px，
+       已经是「完整可见」和「看得清」之间能取到的最好结果。
+       12px 这条线仍然抓得住真退化（fitVerse 坏掉时字号会掉到个位数）。 */
+    const sc = scaleOf(w, d.getElementById('card')) * scaleOf(w, verse);
+    const minFs = Math.max(9, Math.min(12, Math.round(dr.height / 22)));
+    const cnEl = d.getElementById('gCn');
+    const cnFs = parseFloat(w.getComputedStyle(cnEl).fontSize) * sc;
+    const rwEl = d.querySelector('.reveal .rw');
+    const rwFs = rwEl && !d.getElementById('gReveal').hidden
+      ? parseFloat(w.getComputedStyle(rwEl).fontSize) * sc : null;
+    L.push('  ' + tag + ' 有效字号 cn=' + fx(cnFs) + (rwFs ? '  rw=' + fx(rwFs) : '') +
+           '   验收线 ' + minFs + 'px');
+    chk(tag + ' 释义收缩后仍 ≥ ' + minFs + 'px', cnFs >= minFs, fx(cnFs));
+    if (rwFs !== null) chk(tag + ' 答案收缩后仍 ≥ ' + minFs + 'px', rwFs >= minFs, fx(rwFs));
+  }
+
+  function scaleOf(w, el) {
+    const t = w.getComputedStyle(el).transform;
+    if (!t || t === 'none') return 1;
+    const m = t.match(/^matrix\(([^)]+)\)$/);
+    if (m) return parseFloat(m[1].split(',')[0]) || 1;
+    const m3 = t.match(/^matrix3d\(([^)]+)\)$/);
+    if (m3) return parseFloat(m3[1].split(',')[0]) || 1;
+    return 1;
+  }
+}
+</script>
+</body>
+</html>

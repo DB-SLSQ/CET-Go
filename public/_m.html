@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>m</title>
+<style>
+  html,body{margin:0;background:#222;font:12px/1.5 Consolas,monospace;color:#ddd}
+  iframe{border:0;display:block;background:#fff;position:absolute;left:-4000px;top:0}
+  pre{margin:0;padding:8px;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<iframe id="f"></iframe>
+<pre id="out"></pre>
+<script>
+/* 纵深舞台几何测量：把 .depth / #card / .verse 的盒子与内边距全打出来，
+   用来定位「贴脸那一帧」题面顶端探出舞台的根因。
+   用法： /_m.html?w=812&h=375 */
+const Q = new URLSearchParams(location.search);
+const W = +(Q.get('w') || 812), H = +(Q.get('h') || 375);
+const f = document.getElementById('f'), out = document.getElementById('out');
+f.style.width = W + 'px'; f.style.height = H + 'px'; f.src = '/';
+
+const L = [];
+let tries = 0;
+const iv = setInterval(function () {
+  tries++;
+  let w, d;
+  try { w = f.contentWindow; d = f.contentDocument; } catch (e) { return; }
+  if (!w || !d || !w.App || !w.App.Words || !w.App.Words.loaded) {
+    if (tries > 200) { clearInterval(iv); out.textContent = 'TIMEOUT'; document.title = 'TIMEOUT'; }
+    return;
+  }
+  clearInterval(iv);
+  const st = d.createElement('style');
+  st.textContent = '*,*::before,*::after{animation:none!important;transition:none!important}';
+  d.head.appendChild(st);
+  try { run(w, d); document.title = 'OK ' + W + 'x' + H; }
+  catch (e) { L.push('!! ' + e.message); document.title = 'ERR'; }
+  out.textContent = L.join('\n');
+}, 60);
+
+function run(w, d) {
+  const App = w.App, $ = s => d.querySelector(s);
+  const R = el => el.getBoundingClientRect();
+  const fx = n => Math.round(n * 10) / 10;
+  function scaleOf(el) {
+    const t = w.getComputedStyle(el).transform;
+    if (!t || t === 'none') return 1;
+    const m = t.match(/^matrix(3d)?\(([^)]+)\)$/);
+    return m ? (parseFloat(m[2].split(',')[0]) || 1) : 1;
+  }
+  function box(tag, el) {
+    const cs = w.getComputedStyle(el), r = R(el);
+    L.push(tag.padEnd(12) + ' rect ' + fx(r.left) + '~' + fx(r.right) + ' / ' + fx(r.top) + '~' + fx(r.bottom) +
+      '   ' + fx(r.width) + 'x' + fx(r.height));
+    L.push(''.padEnd(12) + ' client ' + el.clientWidth + 'x' + el.clientHeight +
+      '  pad ' + cs.paddingTop + '/' + cs.paddingRight + '/' + cs.paddingBottom + '/' + cs.paddingLeft +
+      '  mar ' + cs.marginTop + '/' + cs.marginBottom +
+      '  minH ' + cs.minHeight + '  flex ' + cs.flexGrow + '  jc ' + cs.justifyContent + '  scale ' + fx(scaleOf(el)));
+  }
+
+  App._show('s-title'); App._renderTitle(); App.setFocus(0, true);
+  App.startFlow('classic'); App.confirmReady();
+
+  const pool = App.Words.pool(App.getState().settings.list) || [];
+  let longM = null, longW = null;
+  pool.forEach(function (it) {
+    const m = App.Words.meaning(it.tr, 2) || '';
+    if (!longM || m.length > longM.length) longM = m;
+    if (!longW || (it.w || '').length > (longW.w || '').length) longW = it;
+  });
+
+  const depth = $('#depth'), verse = $('.verse'), cardEl = $('#card');
+  const freeze = () => {
+    const g = App.getGame(); if (g) g.curScale = App.NEAR_SCALE;
+    cardEl.style.transform = 'scale(' + App.NEAR_SCALE + ')';
+    App.fitVerse();
+  };
+
+  function snap(tag) {
+    L.push('===== ' + tag + ' =====');
+    box('depth', depth); box('card', cardEl); box('verse', verse);
+    L.push('  verse scrollH=' + verse.scrollHeight + ' offsetH=' + verse.offsetHeight +
+      '  transform=' + w.getComputedStyle(verse).transform);
+    /* 逐个子块：以「未缩放的布局坐标」为准（rect 除以祖先累计 scale），
+       看 box 高度到底是被谁撑起来/没被谁撑起来 */
+    const vs = R(verse), k = scaleOf(cardEl) * scaleOf(verse);
+    L.push('  verse 内容盒 ' + (vs.top / 1) + ' (缩放 ' + fx(k) + ')');
+    Array.prototype.forEach.call(verse.children, function (el) {
+      const b = R(el);
+      L.push('    · ' + (el.className || el.id).padEnd(16) +
+        ' 布局高=' + fx(b.height / k) + '  hidden=' + el.hidden +
+        '  top=' + fx((b.top - vs.top) / k) + '~' + fx((b.bottom - vs.top) / k) +
+        '  mar=' + w.getComputedStyle(el).marginTop + '/' + w.getComputedStyle(el).marginBottom +
+        '  flex=' + w.getComputedStyle(el).flex);
+    });
+    L.push('    子块累加高 = ' + fx(Array.prototype.reduce.call(verse.children, function (a, el) {
+      return a + R(el).height / k; }, 0)));
+    L.push('  depth class="' + depth.className + '"  card class="' + cardEl.className + '"');
+    L.push('  NEAR_SCALE=' + App.NEAR_SCALE);
+  }
+
+  L.push('[' + w.innerWidth + 'x' + w.innerHeight + ']  最长释义 ' + longM.length + ' 字');
+
+  /* A 出题态（贴脸） */
+  $('#gReveal').hidden = true; $('#gHint').hidden = false;
+  depth.classList.remove('answered');
+  $('#gCn').textContent = longM;
+  $('#gHint').innerHTML = App.Words.hintMask(longW.w, 0).replace(/_/g, '–');
+  $('#gLen').hidden = false;
+  $('#gLen').innerHTML = '<b>' + App.Words.letterCount(longW.w) + '</b> 字母';
+  freeze(); snap('A 出题态(贴脸)');
+
+  /* B 作答态（贴脸） */
+  App.showReveal(longW); freeze(); snap('B 作答态(贴脸)');
+}
+</script>
+</body>
+</html>

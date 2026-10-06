@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>itest</title>
+<style>html,body{margin:0;background:#111;color:#0f0;font:13px/1.6 Consolas,monospace}
+iframe{position:absolute;left:-4000px;top:0}
+pre{padding:12px}</style></head>
+<body>
+<iframe id="f" src="/"></iframe>
+<pre id="out">running…</pre>
+<script>
+/* 用法： /_itest.html            → 桌面 1280x860
+         /_itest.html?w=390&h=844 → 手机竖屏（单卡模式） */
+const Q = new URLSearchParams(location.search);
+const VW = parseInt(Q.get('w') || '1280', 10);
+const VH = parseInt(Q.get('h') || '860', 10);
+
+const f = document.getElementById('f');
+f.style.width = VW + 'px';
+f.style.height = VH + 'px';
+const out = document.getElementById('out');
+const lines = [];
+let pass = 0, fail = 0;
+function ok(name, cond, extra) {
+  if (cond) { pass++; lines.push('✓ ' + name); }
+  else { fail++; lines.push('✗ ' + name + (extra !== undefined ? '  → ' + extra : '')); }
+}
+function eq(name, got, want) { ok(name, got === want, 'got ' + got + ', want ' + want); }
+
+let tries = 0;
+const iv = setInterval(function () {
+  tries++;
+  let w, d;
+  try { w = f.contentWindow; d = f.contentDocument; } catch (e) { return; }
+  if (!w || !d || !w.App || !w.App.Words || !w.App.Words.loaded || !d.querySelector('#s-title')) {
+    if (tries > 200) { clearInterval(iv); done('TIMEOUT'); }
+    return;
+  }
+  clearInterval(iv);
+  Promise.resolve()
+    .then(function () { return run(w, d); })
+    .then(function () { done('OK'); })
+    .catch(function (e) {
+      lines.push('💥 ' + e.message + '\n' + ((e.stack || '').split('\n')[1] || ''));
+      done('ERR');
+    });
+}, 60);
+
+function done(tag) {
+  out.textContent = lines.join('\n') + '\n\n===== ' + tag + ' : ' + VW + 'x' + VH +
+                    ' pass ' + pass + ' / fail ' + fail + ' =====';
+  document.title = tag + ' ' + VW + 'x' + VH + ' pass=' + pass + ' fail=' + fail;
+}
+
+/* .car-track / .car-card 的 transform 都带过渡，而无头 Edge 里 CSS 过渡不随
+   虚拟时钟推进 —— 直接量会量到过渡的「起始帧」（transform 还是 0、卡片还是 0.9 倍），
+   所以先把过渡和动画关掉，让每次改样式都立刻落到终态。 */
+function freeze(w, d) {
+  const st = d.createElement('style');
+  st.textContent = '*,*::before,*::after{transition:none!important;animation:none!important}';
+  d.head.appendChild(st);
+}
+
+function wait(ms) {
+  return new Promise(function (r) { setTimeout(r, ms); });
+}
+const SETTLE = 160;
+
+async function run(w, d) {
+  const App = w.App;
+  freeze(w, d);
+  const $ = function (s) { return d.querySelector(s); };
+  const $$ = function (s) { return Array.prototype.slice.call(d.querySelectorAll(s)); };
+  const key = function (k) {
+    d.dispatchEvent(new w.KeyboardEvent('keydown', { key: k, bubbles: true }));
+  };
+  const onIdx = function () {
+    return $$('#modeGrid .car-card').findIndex(function (c) { return c.classList.contains('on'); });
+  };
+  const mid = function (el) {
+    const r = el.getBoundingClientRect();
+    return (r.left + r.right) / 2;
+  };
+  const vis = function (el) { return w.getComputedStyle(el).display !== 'none'; };
+  /* 无头里拿不到真实触摸，就直接派发带 touches 的合成事件（监听器只读 clientX/clientY） */
+  const touch = function (el, type, x, y) {
+    const ev = new w.Event(type, { bubbles: true, cancelable: true });
+    const list = (type === 'touchend' || type === 'touchcancel') ? [] : [{ clientX: x, clientY: y }];
+    ev.touches = list;
+    ev.changedTouches = [{ clientX: x, clientY: y }];
+    el.dispatchEvent(ev);
+  };
+
+  const solo = function () { return d.body.classList.contains('car-solo'); };
+
+  /* ---------- 1. 进入标题屏 ---------- */
+  App._show('s-title');
+  App._renderTitle();
+  App.setFocus(0, true);
+  await wait(SETTLE);
+  const cards = $$('#modeGrid .car-card');
+  eq('卡组渲染 4 张模式卡', cards.length, Object.keys(App.MODES).length);
+  ok('默认选中「经典」', cards[0].classList.contains('on'));
+  ok('推荐角标只在经典卡上', $$('.cc-rec').length === 1 && cards[0].querySelector('.cc-rec') !== null);
+
+  /* 卡面素材都真的加载出来了（别说路径写错变白块） */
+  const imgs = $$('#modeGrid .cc-art');
+  eq('每张卡都有卡面图', imgs.length, 4);
+  const bad = imgs.filter(function (im) { return !im.complete || im.naturalWidth === 0; })
+                  .map(function (im) { return im.getAttribute('src'); });
+  ok('4 张卡面素材全部加载成功', bad.length === 0, bad.join(','));
+
+  /* ---------- 2. 几何：居中没有、卡片有没有被压扁 ---------- */
+  App.setFocus(1, true);
+  await wait(SETTLE);
+  const view = $('#carView');
+  const track = $('#modeGrid');
+  const vr = view.getBoundingClientRect();
+  const cr = cards[1].getBoundingClientRect();
+  ok('选中卡水平居中（误差 < 3px）',
+     Math.abs(mid(cards[1]) - mid(view)) < 3,
+     'card ' + mid(cards[1]).toFixed(1) + ' vs view ' + mid(view).toFixed(1) +
+     ' | tf=' + w.getComputedStyle(track).transform);
+  ok('选中卡完整落在视口内（上下不裁）',
+     cr.top >= vr.top - 1 && cr.bottom <= vr.bottom + 1,
+     'card ' + cr.top.toFixed(1) + '~' + cr.bottom.toFixed(1) +
+     ' / view ' + vr.top.toFixed(1) + '~' + vr.bottom.toFixed(1));
+  /* 放大后的验收线。「≥500px / ≥260px」都只是目标值，真正的约束是
+     「把可用高度吃干净」：可用高 = 视口高 − .car-view 的上下 padding
+     （矮屏断点会从 12px 收到 4px，所以不能写死数字，必须从计算样式读）。
+     封顶两条：卡面素材的 CARD_MAX_H=760、单卡模式下的 0.70 宽高比下限。
+     底线必须**先被这两条夹一次**：812x375 的横屏窗口可用高只有 241px，
+     直接写「至少 260」就是空中楼阁 —— 卡片再怎么样也长不出那 19px，
+     这条断言会在一个完全正常的窗口上永远红。 */
+  const vcs = w.getComputedStyle(view);
+  const padY = (parseFloat(vcs.paddingTop) || 0) + (parseFloat(vcs.paddingBottom) || 0);
+  const padX = (parseFloat(vcs.paddingLeft) || 0) + (parseFloat(vcs.paddingRight) || 0);
+  const availH = view.clientHeight - padY;
+  const availW = view.clientWidth - padX;
+  const hCap = Math.min(availH, solo() ? availW / 0.70 : 760);
+  /* 单卡模式下卡面要铺满，额外要求「至少占视口高的 55%」——
+     但同样不能超过窗口给得起的 hCap，否则又是空中楼阁。 */
+  const minH = solo() ? Math.min(hCap, VH * 0.55) : hCap;
+  ok('卡片吃满可用高度' + (solo() ? '（或受 0.70 宽高比限制）' : '（吃满可用高，上限 760）'),
+     cr.height >= minH - 1.5,
+     cr.width.toFixed(0) + 'x' + cr.height.toFixed(0) + ' vs ≥' + minH.toFixed(0) +
+     '（可用高 ' + availH.toFixed(0) + '，paddingY ' + padY + '）');
+  /* 宽高比不能越过素材允许的范围：超了就会裁到人物，不是裁背景 */
+  ok('卡片宽高比在安全范围内（0.70 ~ 0.78）',
+     cr.width / cr.height >= 0.695 && cr.width / cr.height <= 0.785,
+     (cr.width / cr.height).toFixed(3));
+
+  /* 手机单卡：选中卡要完整落在视口内，不能左右被裁 */
+  if (solo()) {
+    ok('单卡模式：卡片左右完整可见',
+       cr.left >= vr.left - 1 && cr.right <= vr.right + 1,
+       'card ' + cr.left.toFixed(1) + '..' + cr.right.toFixed(1) +
+       ' / view ' + vr.left.toFixed(1) + '..' + vr.right.toFixed(1));
+    ok('单卡模式：箭头收起（改用滑动 / 指示点）',
+       !vis($('#carPrev')) && !vis($('#carNext')));
+    ok('单卡模式：卡片纵向也完整可见',
+       cr.top >= vr.top - 1 && cr.bottom <= vr.bottom + 1);
+  } else {
+    ok('宽屏：左右箭头可见', vis($('#carPrev')) && vis($('#carNext')));
+    /* 卡片放大后，两侧邻卡会自然「出血」到视口外被裁 —— 这是参考图的设计，
+       这里只要求：邻卡不遮住选中卡，而且内边缘仍然露在视口里（看得见还有别的模式） */
+    const n0 = cards[0].getBoundingClientRect();
+    const n2 = cards[2].getBoundingClientRect();
+    ok('左侧邻卡不遮住选中卡', n0.right <= cr.left + 1,
+       n0.right.toFixed(1) + ' vs ' + cr.left.toFixed(1));
+    ok('右侧邻卡不遮住选中卡', n2.left >= cr.right - 1,
+       n2.left.toFixed(1) + ' vs ' + cr.right.toFixed(1));
+    ok('左侧邻卡有露出（看得见还有别的模式）', n0.right > vr.left + 4,
+       n0.right.toFixed(1) + ' vs ' + vr.left.toFixed(1));
+  }
+
+  /* 卡面里的字要跟着卡片缩放（大卡上不该还穿着小号字）。
+     字号公式写在 CSS 里：clamp(下限, 卡高 × 0.048, 40px)，
+     这里按同一个公式算期望值，才能既抓住「写死字号」的退化，
+     又不会在矮窗口（卡只有 447 高 → 21.5px）上误报。 */
+  const tabEl = cards[1].querySelector('.cc-tab');
+  const tabFs = parseFloat(w.getComputedStyle(tabEl).fontSize);
+  const expFs = Math.min(40, Math.max(solo() ? 21 : 17, cr.height * 0.048));
+  ok('模式名字号跟随卡面尺寸（≈ 卡高 × 0.048）',
+     tabFs >= expFs - 0.6 && tabFs <= 40.6,
+     tabFs.toFixed(1) + 'px vs 期望 ' + expFs.toFixed(1) + 'px（卡高 ' + cr.height.toFixed(0) + '）');
+
+  /* ---------- 3. 指示点：窄屏才出现，但 4 个都在、点了能换 ---------- */
+  const dots = $$('#carDots .car-dot');
+  eq('指示点渲染 4 个', dots.length, 4);
+  ok('指示点跟随选中状态', dots[1].classList.contains('on') && !dots[0].classList.contains('on'));
+  eq('单卡模式才显示指示点', vis($('#carDots')), solo());
+  if (solo()) {
+    dots[3].click();
+    eq('点指示点 → 焦点跳过去', onIdx(), 3);
+    /* 点到头了，卡片仍要居中 */
+    await wait(SETTLE);
+    ok('跳到末卡后仍居中', Math.abs(mid(cards[3]) - mid(view)) < 3);
+    App.setFocus(1, true);
+    await wait(SETTLE);
+  }
+
+  /* ---------- 4. 滑动翻卡（触控） ---------- */
+  {
+    const carEl = $('.car');
+    const before = onIdx();
+    /* 左滑 = 看下一个 */
+    touch(carEl, 'touchstart', 320, 400);
+    touch(carEl, 'touchmove', 260, 402);
+    touch(carEl, 'touchend', 200, 402);
+    await wait(SETTLE);
+    eq('左滑 → 切到下一张', onIdx(), Math.min(before + 1, 3));
+
+    const now = onIdx();
+    /* 右滑 = 回上一个 */
+    touch(carEl, 'touchstart', 200, 400);
+    touch(carEl, 'touchmove', 260, 402);
+    touch(carEl, 'touchend', 320, 402);
+    await wait(SETTLE);
+    eq('右滑 → 切回上一张', onIdx(), Math.max(now - 1, 0));
+
+    /* 小幅度抖动不该翻页（否则会吃掉「点卡」） */
+    const hold = onIdx();
+    touch(carEl, 'touchstart', 300, 400);
+    touch(carEl, 'touchmove', 316, 402);
+    touch(carEl, 'touchend', 320, 402);
+    await wait(SETTLE);
+    eq('轻微抖动不翻页', onIdx(), hold);
+
+    /* 竖滑要交还给页面滚动，不能翻卡 */
+    const hold2 = onIdx();
+    touch(carEl, 'touchstart', 300, 300);
+    touch(carEl, 'touchmove', 302, 240);
+    touch(carEl, 'touchend', 302, 180);
+    await wait(SETTLE);
+    eq('竖向滑动不翻卡（留给页面滚动）', onIdx(), hold2);
+
+    /* 到头了继续左滑不能越界 */
+    App.setFocus(3, true);
+    await wait(SETTLE);
+    touch(carEl, 'touchstart', 320, 400);
+    touch(carEl, 'touchmove', 240, 400);
+    touch(carEl, 'touchend', 160, 400);
+    await wait(SETTLE);
+    eq('末卡继续左滑不越界', onIdx(), 3);
+    await wait(SETTLE);
+    ok('末卡越界滑动后弹回原位（仍居中）', Math.abs(mid(cards[3]) - mid(view)) < 4);
+  }
+
+  /* ---------- 5. 箭头换卡（宽屏） ---------- */
+  App.setFocus(0, true);
+  await wait(SETTLE);
+  eq('第一张时「上一个」禁用', $('#carPrev').disabled, true);
+  $('#carNext').click();
+  eq('点右箭头 → 焦点到第 2 张', onIdx(), 1);
+  ok('信息条跟着换（最高分/已玩）', $('#cfPlays').textContent.indexOf('已玩') === 0);
+  $('#carNext').click();
+  $('#carNext').click();
+  eq('连点到底 → 第 4 张', onIdx(), 3);
+  eq('最后一张时「下一个」禁用', $('#carNext').disabled, true);
+  $('#carNext').click();
+  eq('到底后再点不越界', onIdx(), 3);
+
+  /* ---------- 6. 鼠标直选：点未选中的只换选中，不进游戏 ---------- */
+  App.setFocus(1, true);
+  cards[2].click();
+  eq('点未选中的卡 → 焦点移过去', onIdx(), 2);
+  ok('点未选中的卡不会离开标题屏',
+     $('#s-title').classList.contains('show') && !$('#s-ready').classList.contains('show'));
+
+  /* ---------- 7. 键盘 ---------- */
+  key('ArrowLeft');
+  eq('← 键回退一张', onIdx(), 1);
+  key('ArrowRight');
+  eq('→ 键前进一张', onIdx(), 2);
+  eq('信息条 = 生存模式的数据', $('#cfPlays').textContent, '已玩 ' +
+     ((App.getState().records.survival || {}).plays || 0) + ' 局');
+  key('Enter');
+  ok('回车 = 决定 → 进入准备屏', $('#s-ready').classList.contains('show'));
+
+  /* ---------- 8. 点选中的卡 / 「决定」按钮进游戏流程 ---------- */
+  App._show('s-title');
+  App.setFocus(0, true);
+  cards[0].click();
+  ok('点已选中的卡 → 进入准备屏', $('#s-ready').classList.contains('show'));
+  eq('准备屏写的是经典模式', $('#rdName').textContent, '经典');
+  $('#btnReadyBack').click();
+  ok('准备屏返回 → 回到标题屏', $('#s-title').classList.contains('show'));
+
+  App.setFocus(2, true);
+  $('#btnDecide').click();
+  ok('「决定」按钮 → 进入准备屏', $('#s-ready').classList.contains('show'));
+  eq('准备屏写的是生存模式', $('#rdName').textContent, '生存');
+  $('#btnReadyBack').click();
+
+  /* 主题模式特殊：先进选词性的弹窗，选完才到准备屏 */
+  App.setFocus(3, true);
+  $('#btnDecide').click();
+  ok('主题模式先弹出词性选择', $('#modal').hidden === false);
+  $('#modalCard [data-topic]').click();
+  ok('选完词性 → 进入准备屏', $('#s-ready').classList.contains('show'));
+  eq('准备屏写的是主题模式', $('#rdName').textContent, '主题');
+  $('#btnReadyBack').click();
+
+  /* ---------- 9. 真的能开局 ---------- */
+  App.setFocus(0, true);
+  $('#btnDecide').click();
+  $('#btnReady').click();
+  await wait(80);
+  ok('准备 OK → 进入游戏屏', $('#s-game').classList.contains('show'));
+  ok('题目已出（有题面文字）', ($('#gCn').textContent || '').length > 0);
+  ok('计时器在跑', !!(App.getGame() && App.getGame().timer));
+
+  /* 游戏屏在手机上的可点区域（当前屏的按钮要够大，隐藏屏的量出来是 0）
+     宽屏是鼠标操作，小号按钮按桌面标准（≥32px）；窄屏要按手指标准（≥40px）。 */
+  {
+    const floor = solo() ? 40 : 32;
+    const btns = [$('#btnSubmit'), $('#btnPause'), $('#btnHint'), $('#btnSkip')];
+    const tooSmall = btns.filter(function (b) {
+      const r = b.getBoundingClientRect();
+      return r.height > 0 && r.height < floor;
+    }).map(function (b) { return b.id + '=' + b.getBoundingClientRect().height.toFixed(0) + 'px'; });
+    ok('游戏屏各按钮高度 ≥ ' + floor + 'px（' + (solo() ? '手指' : '鼠标') + '点得到）',
+       tooSmall.length === 0, tooSmall.join(', '));
+  }
+  /* 游戏屏：题面 + 输入区都在视口内 */
+  {
+    const inp = $('#gInput').getBoundingClientRect();
+    ok('输入框完整在视口内', inp.top >= -1 && inp.bottom <= VH + 1,
+       inp.top.toFixed(1) + '~' + inp.bottom.toFixed(1) + ' / ' + VH);
+    ok('输入框高度 ≥ 44px（iOS 不缩放、手指点得到）', inp.height >= 44, inp.height.toFixed(1) + 'px');
+  }
+
+  /* ---------- 9b. 出题时报「这词几个字母」 ----------
+     这一节必须跑在**真的走过一遍 nextQuestion()** 之后：
+     _gprobe 里那几条查的是手摆出来的状态，摆得再对也证明不了
+     出题流程本身真往标签里写了东西。 */
+  {
+    const G = App.getGame();
+    const lenEl = $('#gLen');
+    const want = App.Words.letterCount(G.cur.w);
+    ok('出题后字母数标签可见（' + G.cur.w + '）',
+       !lenEl.hidden && lenEl.getBoundingClientRect().width > 0, 'hidden=' + lenEl.hidden);
+    eq('字母数 = 当前单词的字母数',
+       String(lenEl.textContent).replace(/\D/g, ''), String(want));
+    /* 题面上有两处在说「这词多长」：字母数标签、下面那排槽。
+       两处对不上，玩家按槽去数就会数错 —— 必须一致。 */
+    eq('槽位数与字母数一致',
+       $('#gHint').querySelectorAll('i.u, b').length, want);
+
+    /* ---------- 9c. 时间内答错：不判死，可以无限次重试 ----------
+       这套行为和直觉相反，最容易在改判定时被顺手改坏，必须逐条钉死。 */
+    G.combo = 3;                            // 先攒个连击，等下验「打错断连击」
+    const lives0 = G.lives;
+    App.judge('zzzzzzzzzzzzzzzzzz');        // 保证不对
+    ok('时间内答错不锁题', G.locked !== true, 'locked=' + G.locked);
+    ok('答错后输入框还能用', !$('#gInput').disabled);
+    ok('答错不亮答案（字母数标签还挂着）',
+       $('#gReveal').hidden === true && lenEl.hidden === false);
+    eq('答错不扣命', G.lives, lives0);
+    eq('答错断连击', G.combo, 0);
+    eq('答错清空输入框', $('#gInput').value, '');
+    eq('打错次数记了一笔', G.misses, 1);
+    App.judge('zzzzzzzzzzzzzzzzzz');        // 再错一次
+    eq('第二次答错照样能接着试（无限次）', G.misses, 2);
+    ok('连错两次仍没亮答案', $('#gReveal').hidden === true);
+
+    /* 答案都亮出来了，再挂个「9 字母」就是噪音，应当自动收起 */
+    App.judge(G.cur.w);
+    ok('亮出答案后字母数标签自动收起', lenEl.hidden === true, 'hidden=' + lenEl.hidden);
+    if (G) G.over = true;    // 掐掉 onCorrect 里 950ms 后的下一题，别干扰后面的用例
+
+    /* ---------- 9e. 超时才是这题的失败：扣命 + 亮答案 + 进错题本 ----------
+       手动复活一题专测超时路径（复活→过期→触发，全程同步，不会被
+       中途的 setTimeout 抢跑：没有 await 就没有时间流逝）。 */
+    G.over = false; G.locked = false;
+    G.deadline = Date.now() - 1;
+    App.onTimeout();
+    eq('超时 → 扣一条命', G.lives, lives0 - 1);
+    ok('超时 → 亮答案', $('#gReveal').hidden === false);
+    ok('超时 → 记进错题本', !!App.getState().wrongbook[G.cur.w]);
+    eq('超时的答案记录 ok=false',
+       (G.answers[G.answers.length - 1] || {}).ok, false);
+    eq('超时的记录带上打错次数',
+       (G.answers[G.answers.length - 1] || {}).m, 2);
+    if (G) G.over = true;    // 掐掉 onWrong 里 1500ms 后的下一题
+  }
+
+  /* ---------- 10. 从游戏退回标题，卡组依然居中 ---------- */
+  App._show('s-title');
+  App.setFocus(2, true);
+  await wait(SETTLE);
+  ok('再次回到标题屏仍然居中', Math.abs(mid($$('#modeGrid .car-card')[2]) - mid($('#carView'))) < 4);
+
+  /* ---------- 11. 桌面模式必须守住自己那条路 ----------
+     页面对「手机 App 外壳」有一套分支（走 window.CetGoNative），
+     在浏览器里绝不能被误判成原生 —— 一旦误判，存档就不再落盘到 data/state.json，
+     而且不会报任何错，玩家只会觉得「分数怎么没了」。 */
+  ok('桌面模式下 App.isNative 为 false（走 /api/*）', App.isNative === false, String(App.isNative));
+
+  const t0 = Date.now();
+  App.flushSave();
+  await wait(900);
+  let st = null;
+  try { st = await fetch('/api/state').then(function (r) { return r.json(); }); } catch (e) {}
+  const at = (st && st.state && st.state.savedAt) ? Date.parse(st.state.savedAt) : 0;
+  ok('桌面模式存档走 /api/state（刚写进去的）',
+     !!st && st.ok === true && at > t0 - 120000,
+     st ? String(st.state && st.state.savedAt) : '取不到');
+}
+</script>
+</body></html>

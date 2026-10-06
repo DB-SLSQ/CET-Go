@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>shot</title>
+<style>html,body{margin:0;background:#222;overflow:hidden}
+iframe{border:0;display:block;background:#fff}</style></head>
+<body>
+<iframe id="f" src="/"></iframe>
+<script>
+const Q = new URLSearchParams(location.search);
+const W = +(Q.get('w') || 1240), H = +(Q.get('h') || 900);
+const SCENE = Q.get('scene') || 'title';
+const IDX = +(Q.get('idx') || 1);
+const f = document.getElementById('f');
+f.style.width = W + 'px';
+f.style.height = H + 'px';
+
+function boot(w, d) {
+  if (!w.App || !w.App.Words || !w.App.Words.loaded) return false;
+  if (!d.querySelector('#s-title')) return false;
+  return true;
+}
+
+let tries = 0;
+const iv = setInterval(function () {
+  tries++;
+  let w, d;
+  try { w = f.contentWindow; d = f.contentDocument; } catch (e) { w = null; }
+  if (!w || !d) return;
+  if (!boot(w, d)) {
+    const why = 'poll' + tries + ' App=' + !!(w && w.App) + ' Words=' + !!(w && w.App && w.App.Words) +
+                ' loaded=' + (w && w.App && w.App.Words ? !!w.App.Words.loaded : '-') + ' title=' + !!d.querySelector('#s-title');
+    document.title = why;
+    return;
+  }
+  clearInterval(iv);
+  // play 是 async（'lan' 场景要等 /api/ping 回来），所以用 then 收尾
+  Promise.resolve()
+    .then(function () { return play(w, d); })
+    .then(function () { document.title = 'OK ' + SCENE + ' ' + W + 'x' + H; },
+          function (e) { document.title = 'ERR ' + e.message; });
+}, 50);
+
+function freezeAnim(d) {
+  const st = d.createElement('style');
+  st.textContent = '*,*::before,*::after{animation:none!important;transition:none!important}';
+  d.head.appendChild(st);
+}
+
+async function play(w, d) {
+  const App = w.App;
+  App._show('s-title');
+  App._renderTitle();
+
+  const startGame = function (k) {
+    App.startFlow(k || 'classic');
+    App.confirmReady();
+  };
+  /* 截图冻结：让 .show 的入场动画直接落到终态，否则无头下整屏停在 opacity:0 */
+  freezeAnim(d);
+
+  if (SCENE === 'title') {
+    App.setFocus && App.setFocus(IDX);
+  } else if (SCENE === 'ready') {
+    App.setFocus && App.setFocus(IDX);
+    App.decide && App.decide();
+  } else if (SCENE === 'game') {
+    startGame();
+    App.paintApproach(+(Q.get('p') || 0.35));
+    App.fitVerse();
+  } else if (SCENE === 'long') {
+    startGame();
+    const G = App.getGame();
+    let best = null;
+    G.pool.forEach(function (it) {
+      const m = w.App.Words.meaning(it.tr, 2);
+      if (!best || m.length > best.m.length) best = { m: m, it: it };
+    });
+    if (best) {
+      G.cur = best.it;
+      d.getElementById('gCn').textContent = best.m;
+      d.getElementById('gPos').textContent = w.App.Words.posOf(best.it);
+      d.getElementById('gHint').innerHTML = w.App.Words.hintMask(best.it.w, 0).replace(/_/g, '–');
+      d.getElementById('gLen').hidden = false;
+      d.getElementById('gLen').innerHTML = '<b>' + w.App.Words.letterCount(best.it.w) + '</b> 字母';
+    }
+    App.paintApproach(+(Q.get('p') || 0.10));
+    App.fitVerse();
+  } else if (SCENE === 'answer') {
+    startGame();
+    const G = App.getGame();
+    G.cur = G.pool[0];
+    d.getElementById('gCn').textContent = w.App.Words.meaning(G.cur.tr, 2);
+    App.judge(G.cur.w, true);
+    App.showReveal(G.cur);
+    freezeAnim(d);
+  } else if (SCENE === 'over') {
+    startGame();
+    const G = App.getGame();
+    G.score = 4820; G.combo = 7; G.maxCombo = 12;
+    G.correct = 24; G.wrong = 4; G.lives = 0;
+    App._gameOver('lives');
+    freezeAnim(d);
+  } else if (SCENE === 'set') {
+    App._renderSettings();
+    App._show('s-set');
+    freezeAnim(d);
+  } else if (SCENE === 'wrong') {
+    App._renderWrong();
+    App._show('s-wrong');
+    freezeAnim(d);
+  } else if (SCENE === 'lan') {
+    /* 「手机玩」面板：只有服务以 --lan 启动、且 /api/ping 报出局域网地址时才有内容。
+       探针页 _lantest.html 负责断言，这里只管出图。 */
+    await (App.detectLan ? App.detectLan() : Promise.resolve());
+    if (App.showLanPanel) App.showLanPanel();
+    freezeAnim(d);
+  }
+}
+</script>
+</body></html>

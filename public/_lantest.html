@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>lantest</title>
+<style>html,body{margin:0;background:#111;color:#0f0;font:13px/1.6 Consolas,monospace}
+iframe{position:absolute;left:-4000px;top:0}
+pre{padding:12px}</style></head>
+<body>
+<iframe id="f" src="/"></iframe>
+<pre id="out">running…</pre>
+<script>
+/* ============================================================
+   「手机玩」面板自测（只在服务以 --lan 启动时才有意义）
+   ------------------------------------------------------------
+     /_lantest.html?w=1280&h=860
+   验：/api/ping 报的局域网信息是真的、面板真的渲染出来、
+   两张二维码图能加载、面板在窗口里放得下。
+   ============================================================ */
+const Q = new URLSearchParams(location.search);
+const VW = parseInt(Q.get('w') || '1280', 10);
+const VH = parseInt(Q.get('h') || '860', 10);
+
+const f = document.getElementById('f');
+f.style.width = VW + 'px';
+f.style.height = VH + 'px';
+const out = document.getElementById('out');
+const lines = [];
+let pass = 0, fail = 0;
+function ok(name, cond, extra) {
+  if (cond) { pass++; lines.push('✓ ' + name); }
+  else { fail++; lines.push('✗ ' + name + (extra !== undefined ? '  → ' + extra : '')); }
+  out.textContent = lines.join('\n');
+}
+function done(tag) {
+  out.textContent = lines.join('\n') + '\n\n===== ' + tag + ' : ' + VW + 'x' + VH +
+                    ' pass ' + pass + ' / fail ' + fail + ' =====';
+  document.title = tag + ' pass=' + pass + ' fail=' + fail;
+}
+function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+(async function () {
+  try {
+    /* ---------- 1. 服务端报的局域网信息 ---------- */
+    const ping = await fetch('/api/ping', { cache: 'no-store' }).then(function (r) { return r.json(); });
+    ok('服务端处于局域网模式', ping.lan === true, JSON.stringify({ lan: ping.lan, port: ping.port }));
+    ok('给出了局域网地址', Array.isArray(ping.urls) && ping.urls.length > 0 &&
+       /^http:\/\/\d+\.\d+\.\d+\.\d+:\d+\/$/.test(ping.urls[0]), JSON.stringify(ping.urls));
+    ok('有安装包直链 /apk', typeof ping.apk === 'string' && /\/apk$/.test(ping.apk), String(ping.apk));
+    ok('两张二维码都生成了', !!ping.qr && !!ping.qrApk, 'qr=' + ping.qr + ' qrApk=' + ping.qrApk);
+
+    /* ---------- 2. 面板渲染 ---------- */
+    let w, d;
+    for (let i = 0; i < 200; i++) {
+      w = f.contentWindow; d = f.contentDocument;
+      if (w && d && w.App && w.App.Words && w.App.Words.loaded && d.querySelector('#s-title.show')) break;
+      await sleep(60);
+    }
+    if (!w || !w.App) { ok('前端启动', false, '超时'); return done('TIMEOUT'); }
+    await sleep(150);
+
+    const st = d.createElement('style');
+    st.textContent = '*,*::before,*::after{transition:none!important;animation:none!important}';
+    d.head.appendChild(st);
+
+    const pill = d.querySelector('#btnLan');
+    ok('右上角出现了「手机玩」按钮', pill && pill.hidden === false, pill ? ('hidden=' + pill.hidden) : '没有这个元素');
+
+    // 走真实入口：点按钮
+    pill.click();
+    await sleep(200);
+    ok('点开后弹窗出现', d.querySelector('#modal').hidden === false);
+
+    const rows = d.querySelectorAll('#modalCard .lan-row');
+    ok('面板有两行（装 App / 用浏览器玩）', rows.length === 2, 'rows=' + rows.length);
+
+    const urls = Array.prototype.map.call(d.querySelectorAll('#modalCard .lan-url'),
+      function (e) { return e.textContent; });
+    ok('第一行给的是 /apk 直链', urls[0] === ping.apk, urls[0] + ' vs ' + ping.apk);
+    ok('第二行给的是网页地址', urls[1] === ping.urls[0], urls[1] + ' vs ' + ping.urls[0]);
+
+    /* ---------- 3. 二维码真的能解码（图能加载出来） ---------- */
+    const imgs = Array.prototype.slice.call(d.querySelectorAll('#modalCard img.lan-qr'));
+    const loaded = await Promise.all(imgs.map(function (im) {
+      if (im.complete) return Promise.resolve(im.naturalWidth);
+      return new Promise(function (res) {
+        im.onload = function () { res(im.naturalWidth); };
+        im.onerror = function () { res(0); };
+      });
+    }));
+    ok('两张二维码图都加载成功且尺寸够大',
+       loaded.length === 2 && loaded.every(function (n) { return n >= 200; }), JSON.stringify(loaded));
+
+    /* ---------- 4. 面板在窗口里放得下（放不下就必须能滚） ---------- */
+    const ov = d.querySelector('#modal');
+    const box = d.querySelector('#modalCard').getBoundingClientRect();
+    ok('面板宽度不超过视口', box.width <= VW + 1, box.width.toFixed(0) + ' / ' + VW);
+
+    const fits = box.top >= -1 && box.bottom <= VH + 1;
+    if (fits) {
+      ok('面板整体在视口内', true,
+         'h=' + box.height.toFixed(0) + ' / 视口高 ' + VH);
+    } else {
+      /* 内容比窗口高是允许的 —— 但必须滚得到两头：
+         否则顶上看不见标题、底下点不到按钮，等于这个功能在矮窗口里废掉。 */
+      ov.scrollTop = 0;
+      const h3 = d.querySelector('#modalCard h3').getBoundingClientRect();
+      const topOk = h3.top >= -1 && h3.bottom <= VH + 1;
+      ov.scrollTop = ov.scrollHeight;
+      const btn = d.querySelector('#mkOk').getBoundingClientRect();
+      const botOk = btn.top >= -1 && btn.bottom <= VH + 1;
+      ok('面板比窗口高时可滚动，标题和按钮都滚得到', topOk && botOk,
+         'h=' + box.height.toFixed(0) + ' / 视口 ' + VH +
+         '；滚到顶 h3.top=' + h3.top.toFixed(0) +
+         '；滚到底 按钮.bottom=' + btn.bottom.toFixed(0));
+    }
+
+    done('OK');
+  } catch (e) {
+    lines.push('💥 ' + e.message);
+    lines.push((e.stack || '').split('\n')[1] || '');
+    done('ERR');
+  }
+})();
+</script>
+</body></html>

@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>probe</title>
+<style>html,body{margin:0;background:#111;color:#0f0;font:12px/1.5 Consolas,monospace}
+iframe{position:absolute;left:-4000px;top:0}</style></head>
+<body><iframe id="f" src="/"></iframe><pre id="out">…</pre>
+<script>
+const Q = new URLSearchParams(location.search);
+const W = +(Q.get('w') || 1240), H = +(Q.get('h') || 900);
+const f = document.getElementById('f');
+const out = document.getElementById('out');
+f.style.width = W + 'px';
+f.style.height = H + 'px';
+const L = [];
+let bad = 0;
+function chk(name, cond, extra) {
+  if (!cond) { bad++; L.push('  ✗ ' + name + (extra ? ' → ' + extra : '')); }
+  else L.push('  ✓ ' + name);
+}
+
+let tries = 0;
+const iv = setInterval(function () {
+  tries++;
+  let w, d;
+  try { w = f.contentWindow; d = f.contentDocument; } catch (e) { return; }
+  if (!w || !d || !w.App || !w.App.Words || !w.App.Words.loaded || !d.querySelector('#s-title')) {
+    if (tries > 150) { clearInterval(iv); out.textContent = W + 'x' + H + ' TIMEOUT'; document.title = W + 'x' + H + ' TIMEOUT'; }
+    return;
+  }
+  clearInterval(iv);
+  const App = w.App;
+  const st = d.createElement('style');
+  st.textContent = '*,*::before,*::after{transition:none!important;animation:none!important}';
+  d.head.appendChild(st);
+
+  App._show('s-title');
+  App._renderTitle();
+  App.setFocus(+(Q.get('idx') || 1), true);
+
+  setTimeout(function () {
+    try { check(w, d, App); } catch (e) { L.push('  💥 ' + e.message); bad++; }
+    out.textContent = W + 'x' + H + '\n' + L.join('\n');
+    document.title = W + 'x' + H + (bad ? '  FAIL ' + bad : '  OK');
+  }, 60);
+}, 50);
+
+function check(w, d, App) {
+  const cs = function (s) { return d.querySelector(s); };
+  const scr = cs('#s-title');
+  const head = cs('.ttl-head'), car = cs('.car'), foot = cs('.car-foot'), tick = cs('#s-title .ticker');
+  const view = cs('#carView');
+  const track = cs('#modeGrid');
+  const cards = Array.prototype.slice.call(track.children);
+  const on = cards.findIndex(function (c) { return c.classList.contains('on'); });
+  const R = function (el) { return el.getBoundingClientRect(); };
+
+  chk('标题屏不产生竖向滚动条', scr.scrollHeight <= scr.clientHeight + 1,
+      scr.scrollHeight + ' vs ' + scr.clientHeight);
+  chk('卡组渲染 4 张', cards.length === 4, cards.length);
+
+  const vr = R(view), cr = R(cards[on]);
+  chk('选中卡水平居中', Math.abs((cr.left + cr.right) / 2 - (vr.left + vr.right) / 2) < 3,
+      ((cr.left + cr.right) / 2).toFixed(1) + ' vs ' + ((vr.left + vr.right) / 2).toFixed(1));
+  chk('选中卡竖向完整可见', cr.top >= vr.top - 1 && cr.bottom <= vr.bottom + 1,
+      cr.top.toFixed(1) + '~' + cr.bottom.toFixed(1) + ' / ' + vr.top.toFixed(1) + '~' + vr.bottom.toFixed(1));
+  chk('卡面尺寸合理', cr.width >= 120 && cr.height >= 150,
+      cr.width.toFixed(0) + 'x' + cr.height.toFixed(0));
+
+  // 可视三张的「铺满」不适用了：卡组改版后两侧邻卡是故意出血、被视口裁掉的
+  //（宽屏的目标是「中间那张尽量大，两侧各露 CARD_PEEK=54px 暗示还能翻」）。
+  // 这里改成真正的不变量：邻卡不许压到选中卡身上，内边缘要露出来让人看得见。
+  if (W > 760) {
+    const n0 = R(cards[Math.max(0, on - 1)]), n2 = R(cards[Math.min(cards.length - 1, on + 1)]);
+    chk('左右邻卡不压住选中卡', n0.right <= cr.left + 1 && n2.left >= cr.right - 1,
+        n0.right.toFixed(1) + ' | ' + cr.left.toFixed(1) + ' … ' +
+        cr.right.toFixed(1) + ' | ' + n2.left.toFixed(1));
+    chk('邻卡内边缘仍露在视口里', n0.right > vr.left + 4 && n2.left < vr.right - 4,
+        n0.right.toFixed(1) + ' vs ' + vr.left.toFixed(1) + ' / ' +
+        n2.left.toFixed(1) + ' vs ' + vr.right.toFixed(1));
+  } else {
+    chk('单卡模式：选中卡左右完整可见', cr.left >= vr.left - 1 && cr.right <= vr.right + 1,
+        cr.left.toFixed(1) + '~' + cr.right.toFixed(1) + ' / ' +
+        vr.left.toFixed(1) + '~' + vr.right.toFixed(1));
+  }
+
+  // 各模块不重叠。display:none 的块 rect 全是 0，直接跳过
+  //（矮屏会主动收起跑马灯，拿 0 去比会把「不重叠」判成「重叠」）。
+  const hr = R(head), br = R(car), fr = R(foot), tr = R(tick);
+  chk('顶栏 / 卡组 不重叠', hr.bottom <= br.top + 1, hr.bottom.toFixed(1) + ' / ' + br.top.toFixed(1));
+  chk('卡组 / 底栏 不重叠', br.bottom <= fr.top + 1, br.bottom.toFixed(1) + ' / ' + fr.top.toFixed(1));
+  if (tr.height === 0) L.push('  · 跑马灯在本尺寸下按设计收起，跳过重叠检查');
+  else chk('底栏 / 跑马灯 不重叠', fr.bottom <= tr.top + 1, fr.bottom.toFixed(1) + ' / ' + tr.top.toFixed(1));
+
+  // ≤760px 时按设计收起箭头（此时靠直接点卡切换，四种模式仍全部可达）
+  if (W > 760) chk('左右箭头都可见', R(cs('#carPrev')).width > 0 && R(cs('#carNext')).width > 0);
+  else L.push('  · 窄屏（≤760px）按设计收起箭头');
+  chk('「决定」按钮可见', R(cs('#btnDecide')).width > 0);
+
+  // 卡片顶部标签 / 底部说明都在卡内
+  const tab = R(cards[on].querySelector('.cc-tab'));
+  const cap = R(cards[on].querySelector('.cc-cap'));
+  chk('模式名标签在卡内', tab.top >= cr.top - 1 && tab.bottom <= cr.bottom + 1);
+  // 说明条贴在内容盒下沿 = 卡片外沿上方「一个描边宽」。
+  // 描边宽度跟卡片高度走（clamp(3px, 卡高 × 0.0082, 6px)），所以不能写死 6 ——
+  // 大卡是 6.23→6px，正好卡在旧容差的边界上，会假红。
+  const bw = parseFloat(w.getComputedStyle(cards[on]).borderTopWidth) || 0;
+  chk('底部说明条贴住卡片下沿（含描边 ' + bw + 'px）',
+      Math.abs(cap.bottom - (cr.bottom - bw)) < 2,
+      cap.bottom.toFixed(1) + ' vs ' + (cr.bottom - bw).toFixed(1));
+
+  const imgs = Array.prototype.slice.call(d.querySelectorAll('#modeGrid .cc-art'));
+  const notLoaded = imgs.filter(function (im) { return !im.complete || im.naturalWidth === 0; });
+  chk('卡面素材全部加载', notLoaded.length === 0, notLoaded.length + ' 张失败');
+}
+</script></body></html>

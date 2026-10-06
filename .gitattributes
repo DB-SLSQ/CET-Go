@@ -1,0 +1,9 @@
+# 本机 core.autocrlf 是 true，而仓库里有一批对换行符敏感的文件：
+#   tools/*.sh    —— 被改成 CRLF 后 shebang 会失效（bad interpreter）
+#   *.vbs / *.bat —— WSH 按 ANSI 读取、cmd 逐个解析，都不该被动
+# 项目里所有文件本来就都是 LF，所以整仓统一按 LF 存取。
+* text=auto eol=lf
+
+# 这两个除外：完全不做任何转换，按原样字节进出
+*.vbs -text
+*.bat -text

@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>-</title>
+<style>
+  html,body{margin:0;background:#222;font:12px/1.5 Consolas,monospace;color:#ddd}
+  iframe{border:0;display:block;background:#fff}
+  pre{margin:0;padding:8px;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<iframe id="f"></iframe>
+<pre id="out"></pre>
+<script>
+const Q = new URLSearchParams(location.search);
+const W = +(Q.get('w') || 1240), H = +(Q.get('h') || 900);
+const SCENE = Q.get('scene') || 'title';
+const IDX = +(Q.get('idx') || 0);
+const f = document.getElementById('f'), out = document.getElementById('out');
+f.style.width = W + 'px'; f.style.height = H + 'px'; f.src = '/';
+
+const L = [];
+function push(s) { L.push(s); }
+function finish(tag) {
+  out.textContent = L.join('\n');
+  document.title = tag + ' :: ' + W + 'x' + H + ' :: ' + (L.filter(x => /^!/.test(x)).join(' ') || 'no-issue');
+}
+
+let tries = 0;
+const iv = setInterval(function () {
+  tries++;
+  let w, d;
+  try { w = f.contentWindow; d = f.contentDocument; } catch (e) { return; }
+  if (!w || !d || !w.App || !w.App.Words || !w.App.Words.loaded) {
+    if (tries > 160) { clearInterval(iv); push('TIMEOUT'); finish('TIMEOUT'); }
+    return;
+  }
+  clearInterval(iv);
+  // 冻结动画/过渡：headless 下它们不随虚拟时钟推进，量到的是起始帧
+  const st = d.createElement('style');
+  st.textContent = '*,*::before,*::after{animation:none!important;transition:none!important}';
+  d.head.appendChild(st);
+  try { run(w, d); finish('OK'); }
+  catch (e) { push('!! ' + e.message); finish('ERR'); }
+}, 60);
+
+function run(w, d) {
+  const App = w.App;
+  const $ = s => d.querySelector(s);
+  const R = el => { const r = el.getBoundingClientRect(); return r; };
+  const fx = n => Math.round(n * 10) / 10;
+
+  push('viewport ' + w.innerWidth + 'x' + w.innerHeight + '  dpr=' + w.devicePixelRatio);
+  push('scene ' + SCENE);
+
+  if (SCENE === 'title') {
+    App._show('s-title');
+    App._renderTitle();
+    App.setFocus(IDX, true);
+
+    const stage = $('#stage'), head = $('.ttl-head'), car = $('.car'),
+          view = $('#carView'), foot = $('.car-foot'), ticker = $('#s-title .ticker'),
+          track = $('#modeGrid'), cards = d.querySelectorAll('#modeGrid .car-card');
+    const sr = R(stage);
+    push('stage  ' + fx(sr.width) + 'x' + fx(sr.height) + '  maxW=' + w.getComputedStyle(stage).maxWidth);
+    push('head   h=' + fx(R(head).height));
+    push('car    h=' + fx(R(car).height) + '  view=' + fx(R(view).width) + 'x' + fx(R(view).height));
+    push('foot   h=' + fx(R(foot).height));
+    push('ticker h=' + fx(R(ticker).height));
+    push('card   ' + fx(R(cards[0]).width) + 'x' + fx(R(cards[0]).height) +
+         '  css=' + w.getComputedStyle(track).getPropertyValue('--cw').trim() + '/' +
+         w.getComputedStyle(track).getPropertyValue('--ch').trim());
+    const on = cards[App.getFocusIdx ? App.getFocusIdx() : IDX];
+    if (on) {
+      const cr = R(on), vr = R(view);
+      push('on-card L/R ' + fx(cr.left) + ' / ' + fx(cr.right) + '   mid=' + fx((cr.left + cr.right) / 2) +
+           '  viewMid=' + fx((vr.left + vr.right) / 2));
+      push('on-card T/B ' + fx(cr.top) + ' / ' + fx(cr.bottom) + '   view T/B ' + fx(vr.top) + ' / ' + fx(vr.bottom));
+      if (cr.top < vr.top - 1 || cr.bottom > vr.bottom + 1) push('!! 卡面被上下裁切');
+      if (Math.abs((cr.left + cr.right) / 2 - (vr.left + vr.right) / 2) > 3) push('!! 未居中');
+    }
+    // 各块之间有没有重叠
+    const seq = [[head, 'head'], [car, 'car'], [foot, 'foot'], [ticker, 'ticker']];
+    for (let i = 1; i < seq.length; i++) {
+      const a = R(seq[i - 1][0]), b = R(seq[i][0]);
+      const gap = b.top - a.bottom;
+      push('gap ' + seq[i - 1][1] + '→' + seq[i][1] + ' = ' + fx(gap));
+      if (gap < -1) push('!! ' + seq[i - 1][1] + ' 与 ' + seq[i][1] + ' 重叠');
+    }
+    if (R(ticker).bottom > sr.bottom + 1) push('!! 跑马灯溢出舞台底');
+  }
+
+  if (SCENE === 'game') {
+    App._show('s-title'); App._renderTitle(); App.setFocus(0, true);
+    App.startFlow('classic'); App.confirmReady();
+    const hud = $('.hud'), depth = $('#depth'), chara = $('#chara'),
+          row = $('.answer-row'), ops = $('.ops'), bar = $('#timeBar');
+    push('hud    ' + fx(R(hud).width) + 'x' + fx(R(hud).height) +
+         '  right=' + fx(R(hud).right) + '  vw=' + w.innerWidth);
+    if (R(hud).right > w.innerWidth + 1 || R(hud).left < -1) push('!! HUD 横向溢出');
+    push('timebar w=' + fx(R(bar).width));
+    push('depth  ' + fx(R(depth).width) + 'x' + fx(R(depth).height));
+    push('chara  ' + fx(R(chara).width) + 'x' + fx(R(chara).height) +
+         '  L=' + fx(R(chara).left) + ' T=' + fx(R(chara).top) +
+         ' R=' + fx(R(chara).right) + ' B=' + fx(R(chara).bottom));
+    if (R(chara).bottom > R(row).top + 1 && R(chara).left < R(depth).right) {
+      push('? 看板娘底部 ' + fx(R(chara).bottom) + ' 低于输入区顶部 ' + fx(R(row).top));
+    }
+    push('row    ' + fx(R(row).width) + 'x' + fx(R(row).height) + '  T/B=' + fx(R(row).top) + '/' + fx(R(row).bottom));
+    push('ops    ' + fx(R(ops).width) + 'x' + fx(R(ops).height) + '  T/B=' + fx(R(ops).top) + '/' + fx(R(ops).bottom));
+    if (R(ops).bottom > w.innerHeight + 1) push('!! ops 溢出视口底');
+    // 题面是否出舞台
+    const verse = $('.verse');
+    push('verse  ' + fx(R(verse).width) + 'x' + fx(R(verse).height) +
+         '  T/B=' + fx(R(verse).top) + '/' + fx(R(verse).bottom) +
+         '   depth T/B=' + fx(R(depth).top) + '/' + fx(R(depth).bottom));
+    if (R(verse).top < R(depth).top - 1 || R(verse).bottom > R(depth).bottom + 1) push('!! 题面溢出纵深舞台');
+  }
+
+  if (SCENE === 'over' || SCENE === 'set' || SCENE === 'wrong' || SCENE === 'ready') {
+    const map = { over: 's-over', set: 's-set', wrong: 's-wrong', ready: 's-ready' };
+    App._show('s-title'); App._renderTitle();
+    App.startFlow('classic'); App.confirmReady();
+    if (SCENE === 'over') { App.getGame().score = 1234; App._gameOver(); }
+    if (SCENE === 'set') { App._renderSettings(); App._show('s-set'); }
+    if (SCENE === 'wrong') { App._renderWrong(); App._show('s-wrong'); }
+    if (SCENE === 'ready') { App._show('s-ready'); }
+    const scr = $('#' + map[SCENE]);
+    const sr = R(scr);
+    push('screen ' + fx(sr.width) + 'x' + fx(sr.height) + ' scrollH=' + scr.scrollHeight);
+    if (scr.scrollHeight > scr.clientHeight + 2) push('! 需要滚动 ' + (scr.scrollHeight - scr.clientHeight) + 'px');
+    const parts = [];
+    Array.prototype.forEach.call(scr.children, el => {
+      if (el.hidden) return;
+      const r = R(el);
+      if (r.width === 0 && r.height === 0) return;
+      parts.push((el.className || el.id || el.tagName).toString().split(' ')[0] +
+                 '[' + fx(r.top) + '~' + fx(r.bottom) + ']');
+    });
+    push('blocks ' + parts.join('  '));
+  }
+}
+</script>
+</body>
+</html>
