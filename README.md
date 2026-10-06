@@ -59,26 +59,18 @@
 ```bash
 node server.js          # 默认端口 27656，浏览器开 http://127.0.0.1:27656
 node server.js 8080     # 换端口
-node server.js --lan    # 绑到 0.0.0.0，同一个 Wi-Fi 下的手机能连进来
+node server.js --lan    # 绑到 0.0.0.0，同一 Wi-Fi 下的其他电脑能下载绿色包（/pc）
 node server.js --keep-alive   # 关掉「空闲 150 秒自动退出」
 ```
 
 关窗口后服务会自己退，不会留后台进程。
 
-**手机上玩（安卓）**
-
-```bash
-bash tools/build-apk.sh        # 产出 dist/CETGo.apk
-```
-
-APK 是零权限的（连 `INTERNET` 都不要），词库打进包里 —— 飞行模式照跑，进度存手机本地。
-
-顺手也能用局域网模式玩网页版：`node server.js --lan`，游戏窗口右上角有「手机玩」，里面有二维码，扫一眼就开。
+> 曾经开过一个安卓 APK 版（零权限 WebView 壳 + JS 桥存档），手机端适配没做好，已下线删除。这是个纯电脑版游戏。
 
 ## 目录
 
 ```
-server.js              本地服务：静态文件 + /api/state 存档 + 局域网二维码
+server.js              本地服务：静态文件 + /api/state 存档
 public/                整个前端
   index.html           六个屏幕：标题 / 准备 / 游戏 / 结算 / 设置 / 错题本
   js/words.js          词库：加载、释义清洗、判分归一化、提示掩码
@@ -87,9 +79,8 @@ public/                整个前端
   assets/              背景与立绘（webp）
 data/words_cet4.json   词库（3518 条）
 data/words_cet6.json   词库（2271 条）
-android/               安卓外壳：MainActivity + manifest + 资源
 tools/                 构建与自测脚本（见下）
-docs/                  截图与扫码安装页
+docs/                  截图归档
 ```
 
 **`tools/` 里有什么**
@@ -97,10 +88,7 @@ docs/                  截图与扫码安装页
 | 脚本 | 干什么 |
 |---|---|
 | `selftest.js` | Node 直跑的词库 / 清洗 / 判分 / 掩码自测 + HTML id 与 JS 引用一致性 |
-| `build-apk.sh` | 零依赖打 APK：`javac → d8 → aapt2 → 塞 dex → zipalign → apksigner` |
 | `build-pc-zip.py` | 出绿色免安装包（完整版自带 `node.exe` / 精简版不带） |
-| `make-appicon.py` | 从一张 512px 图标生成安卓整套图标（含自适应图标安全区） |
-| `make-install-page.py` | 生成扫码安装页 |
 | `prep-assets.py` · `prep-modes.py` | 处理素材原图：抠白底 / 去水印 / 底部对齐 / 裁模式卡 |
 
 ## 它是怎么被验证的
@@ -117,9 +105,7 @@ bash tools/shot.sh              # 各屏幕截图工作台
 | 探针 | 管什么 |
 |---|---|
 | `_gprobe.html` | 各屏在 15 种窗口尺寸下**不溢出**（含「贴脸放大」那一帧的最坏情况） |
-| `_itest.html` | 主页交互：轮播、翻卡、开局、按钮尺寸、存档落盘 |
-| `_ntest.html` | 手机 App 外壳那条分支（假 `CetGoNative` 桥） |
-| `_lantest.html` | 局域网面板在最窄 / 最矮窗口下是否放得下、滚得到 |
+| `_itest.html` | 主页交互：轮播、翻卡、开局、判定规则（重试/超时/字母数）、按钮尺寸、存档落盘 |
 | `_shot.html` · `_m.html` | 截图与盒模型排查 |
 
 结论写进页面 `<title>`，用 `--dump-dom` 抓出来比对。**断言只写「真实会出现的状态」** —— 比如「最长的单个词条」，而不是「最长释义 + 最长单词」这种拼出来的组合，否则红线没人能修。

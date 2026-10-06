@@ -32,7 +32,6 @@ const iv = setInterval(function () {
     return;
   }
   clearInterval(iv);
-  // play 是 async（'lan' 场景要等 /api/ping 回来），所以用 then 收尾
   Promise.resolve()
     .then(function () { return play(w, d); })
     .then(function () { document.title = 'OK ' + SCENE + ' ' + W + 'x' + H; },
@@ -106,12 +105,6 @@ async function play(w, d) {
   } else if (SCENE === 'wrong') {
     App._renderWrong();
     App._show('s-wrong');
-    freezeAnim(d);
-  } else if (SCENE === 'lan') {
-    /* 「手机玩」面板：只有服务以 --lan 启动、且 /api/ping 报出局域网地址时才有内容。
-       探针页 _lantest.html 负责断言，这里只管出图。 */
-    await (App.detectLan ? App.detectLan() : Promise.resolve());
-    if (App.showLanPanel) App.showLanPanel();
     freezeAnim(d);
   }
 }

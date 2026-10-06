@@ -10,8 +10,8 @@
 '    3. wait until /api/ping answers 200
 '    4. open the Edge app window
 '
-'  Pass /lan to also serve the same Wi-Fi (the "CET Go phone" shortcut does this):
-'  the title screen then grows a "phone" button with a QR code.
+'  Pass /lan to also serve the local Wi-Fi: other PCs on the same
+'  network can then download the green PC package at /pc.
 '
 '  Debug:  wscript "CET Go.vbs" /log   -> writes launcher.log
 ' ============================================================
@@ -99,8 +99,8 @@ If Not ready Then
 
   sh.CurrentDirectory = appDir
   cmd = """" & node & """ """ & fso.BuildPath(appDir, "server.js") & """ " & port
-  ' /lan binds the server to 0.0.0.0 so phones on the same Wi-Fi can reach it.
-  ' The title screen then grows a "phone" button holding the download QR code.
+  ' /lan binds the server to 0.0.0.0 so other PCs on the same
+  ' Wi-Fi can download the PC package via the /pc direct link.
   If gLan Then cmd = cmd & " --lan"
   LogMsg "run hidden: " & cmd
 

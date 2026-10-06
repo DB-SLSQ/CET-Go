@@ -2514,78 +2514,27 @@ body.car-solo .car-view{padding:8px 3px}
 }
 
 /* ============================================================
-   11. 「手机玩」面板（局域网模式）
+   11. 弹窗层的滚动兜底
    ------------------------------------------------------------
-   只在服务以 --lan 启动、且页面是在电脑上打开时才出现：
-   两行 —— 上面是「装 App」的安装包直链，下面是「用浏览器玩」。
-   每行左边一张码，右边标题和网址。
+   内容比窗口高时（矮窗口 / 小屏），弹窗必须能滚 —— 否则上下两头
+   都被视口切掉，标题看不到、按钮也点不着。
+   （这节最早是给「手机玩」面板修的，手机版下线后规则保留 ——
+   任何弹窗内容超高都受益。）
    ============================================================ */
 /* .tool-pill 是 display:inline-flex，会盖掉 hidden 属性的 display:none */
 .tool-pill[hidden]{display:none}
 
-.lan-tip{font-size:13px; line-height:1.8; max-width:440px; text-align:center}
-.lan-tip.dim{color:var(--dim); font-size:12px; opacity:.9; line-height:1.7}
-
-.lan-row{
-  display:flex; align-items:center; gap:16px; width:100%;
-  padding:11px 13px; border-radius:18px;
-  background:linear-gradient(180deg, rgba(255,255,255,.88), rgba(255,244,247,.74));
-  border:1.5px solid var(--line2);
-}
-.lan-qr{
-  width:104px; height:104px; flex:0 0 auto; display:block;
-  border-radius:14px; background:#fffaf6; padding:5px;
-  border:2px solid #fff;
-  box-shadow:0 6px 16px rgba(190,120,150,.22);
-}
-.lan-qr-none{
-  display:flex; align-items:center; justify-content:center; text-align:center;
-  font-size:11px; line-height:1.4; color:var(--dim);
-  background:repeating-linear-gradient(45deg,#fff6f9,#fff6f9 7px,#fdeef3 7px,#fdeef3 14px);
-  box-shadow:none; border-style:dashed; border-color:var(--line2);
-}
-.lan-info{display:flex; flex-direction:column; align-items:flex-start; gap:3px; min-width:0; text-align:left}
-.lan-tag{
-  font-size:11px; letter-spacing:1px; color:#fff; padding:2px 8px; border-radius:999px;
-  background:linear-gradient(135deg, var(--cyan), #ff7ba0);
-  box-shadow:0 2px 7px rgba(255,139,171,.45);
-}
-.lan-title{font-size:15px; font-weight:700; color:var(--ink); letter-spacing:.5px}
-.lan-sub{font-size:11.5px; color:var(--dim); line-height:1.5}
-.lan-sub b{color:var(--ink)}
-.lan-url{
-  margin-top:3px; max-width:100%;
-  font:600 12.5px/1.4 ui-monospace, "SF Mono", Consolas, monospace;
-  color:var(--ink); padding:4px 9px; border-radius:9px;
-  background:#fff; border:1.5px dashed var(--line2);
-  user-select:all; word-break:break-all;
-}
-
-/* 矮窗口：二维码整行缩一号，免得把按钮顶出去 */
+/* 矮窗口：弹窗整体缩一号，免得把按钮顶出去 */
 @media (max-height:660px){
   .pausecard.wide{max-width:560px}
-  .lan-qr{width:78px; height:78px; padding:3px}
-  .lan-row{gap:12px; padding:8px 10px}
-  .lan-title{font-size:13.5px}
-  .lan-sub{font-size:11px}
-  .lan-url{font-size:11.5px; padding:3px 7px}
-  .lan-tip{font-size:12px}
 }
 
-/* ============================================================
-   12. 弹窗层的滚动兜底
-   ------------------------------------------------------------
-   内容比窗口高时（矮窗口 / 小屏），弹窗必须能滚 —— 否则上下两头
-   都被视口切掉，标题看不到、按钮也点不着。之前「手机玩」面板
-   在 812x375 里高 517px，就是这么被切掉的。
-
-   两个细节：
+/* —— 滚动兜底的细则 ——
    ① 用「子元素 margin:auto」而不是父元素 align-items:center。
       flex 容器里 align-items:center 让溢出内容两头都够不着 ——
       上面被切掉的那截滚不回去（这是经典的 flex 溢出坑）。
    ② .pausecard.wide 的 min-width:380px 会在 320px 宽的窗口里
-      造成横向溢出，窄屏下要放开。
-   ============================================================ */
+      造成横向溢出，窄屏下要放开。 */
 .overlay{
   align-items:flex-start;
   overflow-y:auto;

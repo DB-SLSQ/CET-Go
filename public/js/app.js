@@ -145,23 +145,7 @@ function mergeState(def, saved) {
   return o;
 }
 
-/* ============================================================
-   原生外壳（打包成手机 App 时才有）
-   ------------------------------------------------------------
-   装成 APK 之后页面由 App 自己内置的本地资源服务提供，
-   没有 /api/state 这个后端了，存档改走 App 注入的 CetGoNative；
-   桌面版没有这个对象，一切照旧走 fetch —— 两条路互不影响。
-   ============================================================ */
-const NATIVE = (typeof window.CetGoNative !== 'undefined') ? window.CetGoNative : null;
-
 async function loadState() {
-  if (NATIVE) {
-    try {
-      const raw = NATIVE.loadState();
-      if (raw) return mergeState(defaultState(), JSON.parse(raw));
-    } catch (e) { /* 读不出来就用默认值，不挡启动 */ }
-    return defaultState();
-  }
   try {
     const r = await fetch('/api/state', { cache: 'no-store' }).then(x => x.json());
     if (r && r.ok && r.state) return mergeState(defaultState(), r.state);
@@ -177,12 +161,6 @@ function save(immediate) {
 async function doSave() {
   if (saving || !dirty) return;
   saving = true; dirty = false;
-  if (NATIVE) {
-    try { NATIVE.saveState(JSON.stringify(S)); } catch (e) { dirty = true; }
-    saving = false;
-    if (dirty) save();
-    return;
-  }
   try {
     await fetch('/api/state', {
       method: 'PUT',
@@ -194,34 +172,8 @@ async function doSave() {
   if (dirty) save();
 }
 function startHeartbeat() {
-  if (NATIVE) return;          // App 里没有「前端关了就退出」这回事
   setInterval(() => { fetch('/api/ping', { cache: 'no-store' }).catch(() => {}); }, 20000);
 }
-
-/* Android 返回键：App 那边先问这一下，返回 true 表示「这一下我处理了，别退出」。
-   顺序是「关弹窗 → 暂停本局 → 退回标题屏 → 都没有才交给系统」。 */
-window.__cetgoBack = function () {
-  try {
-    const m = $('#modal');
-    if (m && !m.hidden) { m.hidden = true; return true; }
-
-    const cur = document.querySelector('.screen.show');
-    const id = cur ? cur.id : '';
-
-    // 正在答题：先暂停，别把一局玩到一半的成绩丢掉
-    if (id === 's-game' && G && !G.over) {
-      if (!G.paused && !G.locked) { pauseGame(); return true; }
-      return true;                       // 已经在暂停面板上：再按一次不做事，交给面板按钮
-    }
-    if (id && id !== 's-title' && id !== 's-boot') {
-      if (G && !G.over) { gameOver('quit'); return true; }
-      renderTitle();
-      show('s-title');
-      return true;
-    }
-  } catch (e) { /* 出错就让系统按默认行为处理 */ }
-  return false;                          // 已经在标题屏 —— 允许退出 App
-};
 
 /* ---------------- 屏幕切换 ---------------- */
 function show(id) {
@@ -258,83 +210,6 @@ function infoBox(title, msg, okText) {
     card.querySelector('#mkOk').onclick = () => { $('#modal').hidden = true; resolve(true); };
     card.querySelector('#mkOk').focus();
   });
-}
-
-/* ---------------- 「手机玩」：把局域网地址和二维码摆出来 ---------------- */
-let LAN_INFO = null;      // { urls:[], apk, qr, qrApk }
-
-/* 只有在「服务确实是 --lan 起的」且「这一页是在电脑上打开」时才有意义：
-   手机自己打开的那一页不需要再告诉它地址。 */
-async function detectLan() {
-  if (!/^(127\.0\.0\.1|localhost|\[?::1\]?)$/i.test(location.hostname)) return;
-  let p = null;
-  try {
-    const r = await fetch('/api/ping', { cache: 'no-store' });
-    p = await r.json();
-  } catch (e) { return; }
-  if (!p || !p.lan || !p.urls || !p.urls.length) return;
-  LAN_INFO = p;
-  const b = $('#btnLan');
-  if (b) b.hidden = false;
-}
-
-function showLanPanel() {
-  if (!LAN_INFO) return;
-  const card = $('#modalCard');
-  const web = LAN_INFO.urls[0];
-
-  // 一行 = 左边二维码 + 右边标题和地址
-  function row(qr, tag, title, sub, url, copyable) {
-    return '<div class="lan-row">' +
-      (qr
-        ? '<img class="lan-qr" src="' + qr + '" alt="' + esc(title) + ' 二维码">'
-        : '<div class="lan-qr lan-qr-none">无<br>二维码</div>') +
-      '<div class="lan-info">' +
-        '<b class="lan-tag">' + esc(tag) + '</b>' +
-        '<span class="lan-title">' + esc(title) + '</span>' +
-        '<span class="lan-sub">' + sub + '</span>' +
-        '<code class="lan-url" data-url="' + esc(url) + '">' + esc(url) + '</code>' +
-      '</div>' +
-    '</div>';
-  }
-
-  card.innerHTML =
-    '<h3>手机上玩</h3>' +
-    '<p class="lan-tip">手机连上<b>同一个 Wi-Fi</b>，用相机扫码即可：</p>' +
-
-    (LAN_INFO.apk
-      ? row(LAN_INFO.qrApk, '装 App', '装到手机',
-          '扫码下载安装包，装完离线就能玩（推荐）', LAN_INFO.apk)
-      : row(null, '装 App', '装到手机',
-          '这台电脑上还没有打包好的安装包 —— 先在电脑上跑一次 <b>tools/build-apk.sh</b>',
-          '（暂无）')) +
-
-    row(LAN_INFO.qr, '免安装', '用浏览器玩',
-        '不装也能玩，进度存在电脑上', web) +
-
-    '<p class="lan-tip dim">装在手机上的那份是<b>完全离线</b>的，进度存在手机里；' +
-    '浏览器版则要开着电脑上的这个窗口。<br>' +
-    '手机第一次安装第三方 APK，系统会问「是否允许安装未知应用」，允许即可。</p>' +
-    '<div class="row">' +
-      '<button class="btn primary" id="mkOk">知道了</button>' +
-      '<button class="btn ghost" id="mkCopy">复制网址</button>' +
-    '</div>';
-
-  $('#modal').hidden = false;
-  card.querySelector('#mkOk').onclick = () => { SFX.click(); $('#modal').hidden = true; };
-  card.querySelector('#mkCopy').onclick = function () {
-    SFX.click();
-    const self = this;
-    const txt = web;
-    const done = () => {
-      self.textContent = '已复制';
-      setTimeout(() => { self.textContent = '复制网址'; }, 1200);
-    };
-    try {
-      navigator.clipboard.writeText(txt).then(done, done);
-    } catch (e) { done(); }
-  };
-  card.querySelector('#mkOk').focus();
 }
 
 /* ---------------- 标题屏：卡组轮播 ---------------- */
@@ -1610,27 +1485,15 @@ function renderSettings() {
     })));
 
   // 数据操作
-  const openDir = el('button', 'btn ghost sm', NATIVE ? '记在哪里' : '打开数据文件夹');
+  const openDir = el('button', 'btn ghost sm', '打开数据文件夹');
   openDir.onclick = function () {
-    if (NATIVE) {
-      toast('记录存在 App 内部，卸载会一起删掉；想留存就点「立即备份」');
-      return;
-    }
     fetch('/api/open-dir').catch(function () {});
     toast('已打开数据文件夹');
   };
-  box.appendChild(setRow('数据位置',
-    NATIVE ? '只存在这台手机里，不联网' : '所有记录只存在这台电脑上', openDir));
+  box.appendChild(setRow('数据位置', '所有记录只存在这台电脑上', openDir));
 
   const backup = el('button', 'btn ghost sm', '立即备份');
   backup.onclick = async function () {
-    if (NATIVE) {
-      try {
-        const p = NATIVE.backup(JSON.stringify(S));
-        toast(p ? '已备份：' + p : '备份失败', !p);
-      } catch (e) { toast('备份失败', true); }
-      return;
-    }
     try {
       const r = await fetch('/api/backup').then(function (x) { return x.json(); });
       toast(r.ok ? '已备份到 ' + r.file : '备份失败', !r.ok);
@@ -1654,10 +1517,8 @@ function renderSettings() {
 
   const quit = el('button', 'btn ghost sm', '退出应用');
   quit.onclick = async function () {
-    const ok = await confirmBox('退出应用？',
-      NATIVE ? '关闭 CET Go。' : '关闭本地服务并关掉窗口。', '退出', '取消');
+    const ok = await confirmBox('退出应用？', '关闭本地服务并关掉窗口。', '退出', '取消');
     if (!ok) return;
-    if (NATIVE) { NATIVE.quit(); return; }
     try { await fetch('/api/quit'); } catch (e) {}
     // 先尝试直接关窗；关不掉就提示一句
     try { window.close(); } catch (e) {}
@@ -1666,7 +1527,7 @@ function renderSettings() {
       toast('服务已退出，点右上角 × 关闭窗口');
     }, 400);
   };
-  box.appendChild(setRow('退出应用', NATIVE ? '关掉这个 App' : '关闭后台本地服务', quit));
+  box.appendChild(setRow('退出应用', '关闭后台本地服务', quit));
 
   $('#btnSetBack').textContent = '返回';
 }
@@ -1714,14 +1575,14 @@ function bindEvents() {
   $('#carPrev').onclick = function () { SFX.unlock(); moveFocus(-1); };
   $('#carNext').onclick = function () { SFX.unlock(); moveFocus(1); };
   $('#btnDecide').onclick = function () { decide(); };
-  $('#btnLan').onclick = function () { SFX.click(); showLanPanel(); };
   $('#btnHelp').onclick = function () {
     SFX.click();
     infoBox('玩法', [
       '单词从<b>远处朝你压过来</b>，你来拼出它 —— 时间条走完，它就撞到你脸上。',
       '',
       '屏幕给出<b>中文释义</b>，拼出对应的<b>英文单词</b>，回车提交。',
-      '答对 → 加分 + 连击；答错或超时 → 扣一条命，并亮出正确答案。',
+      '时间内<b>打错不扣命</b>：抖一下接着改，可以无限次重试；' +
+      '只有<b>超时</b>才扣一条命并亮出正确答案。',
       '连击越高单题加分越多；用「提示」会扣分。',
       '',
       '<b>四种模式</b>：经典 · 极速（每题 5 秒）· 生存（1 条命）· 主题（按词性）。',
@@ -1805,7 +1666,6 @@ async function init() {
   show('s-title');
   startHeartbeat();
   plantPetals();
-  detectLan();
 
   document.addEventListener('pointerdown', function () { SFX.unlock(); }, { once: true });
   bindCarSwipe();
@@ -1838,12 +1698,8 @@ window.App = {
   onTimeout: onTimeout,
   showReveal: showReveal,
   fitVerse: fitVerse,
-  detectLan: detectLan,
-  showLanPanel: showLanPanel,
-  /* App 切后台时外壳会调这个：把攒在防抖里的存档立刻落盘。
-     原生桥的写入是同步的，所以 doSave 走到这一步就把数据写完了。 */
+  /* 自测用：把攒在防抖里的存档立刻落盘。 */
   flushSave: function () { dirty = true; return doSave(); },
-  isNative: !!NATIVE,
   typeCn: typeCn,
   charaMood: charaMood,
   plantPetals: plantPetals,

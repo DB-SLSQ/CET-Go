@@ -390,12 +390,8 @@ async function run(w, d) {
   await wait(SETTLE);
   ok('再次回到标题屏仍然居中', Math.abs(mid($$('#modeGrid .car-card')[2]) - mid($('#carView'))) < 4);
 
-  /* ---------- 11. 桌面模式必须守住自己那条路 ----------
-     页面对「手机 App 外壳」有一套分支（走 window.CetGoNative），
-     在浏览器里绝不能被误判成原生 —— 一旦误判，存档就不再落盘到 data/state.json，
-     而且不会报任何错，玩家只会觉得「分数怎么没了」。 */
-  ok('桌面模式下 App.isNative 为 false（走 /api/*）', App.isNative === false, String(App.isNative));
-
+  /* ---------- 11. 存档落盘 ----------
+     桌面版只走 /api/state 这一条路（手机外壳的分支已随安卓版下线删除）。 */
   const t0 = Date.now();
   App.flushSave();
   await wait(900);

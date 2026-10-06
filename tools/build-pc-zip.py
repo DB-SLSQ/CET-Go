@@ -45,8 +45,6 @@ DIRS = [
 ]
 # 词库要带上，存档（state.json / backup）不能带 —— 那是使用者自己的记录
 WORDS = ['words_cet4.json', 'words_cet6.json']
-# 手机安装包也塞进去，这样绿色版自己就能给别人发手机版
-EXTRA_FILES = [('CETGo.apk', 'CETGo.apk')]
 
 NODE_CANDIDATES = [
     # 不写死用户名路径：expanduser 在谁机器上就解析成谁的家目录
@@ -83,22 +81,22 @@ CET Go —— 电脑版（绿色免安装）
 ------------------------------------------------------------
   看中文释义，限时拼出对应的英文单词，回车提交。
 
-  连击加分、提示扣分，答错的词自动进「错题本」，随时重练。
+  连击加分、提示扣分。时间内打错不扣命，可以无限次重试；
+  超时才扣命，答错/超时的词自动进「错题本」，随时重练。
 
   先选难度（normal / hard / veryhard / hell），再选题量
   （7 / 10 / 16）。词表在「设置」里切 CET4 / CET6 / 全部。
 
 
-电脑上也给别人玩
+给别的电脑玩
 ------------------------------------------------------------
-  标题屏右上角有个「手机玩」按钮，里面是二维码：
-    · 手机扫「装 App」那张 → 直接下载安卓安装包
-    · 扫「用浏览器玩」那张 → 手机浏览器直接开，不用装
-  前提是手机和这台电脑在同一个 Wi-Fi 下。
+  把整个文件夹（或这个 zip）直接拷给对方就行。
 
-  按这个按钮前，要先带 /lan 参数启动：
-  右键「CET Go.vbs」→ 发送到 → 桌面快捷方式，然后右键那个
-  快捷方式 → 属性 → 在「目标」最后加一个空格再加  /lan 。
+  同一局域网内也可以直接下载：让本机带 /lan 参数启动
+  （右键「CET Go.vbs」→ 发送到 → 桌面快捷方式，右键那个
+  快捷方式 → 属性 → 在「目标」最后加一个空格再加  /lan ），
+  启动后控制台会打印一个 /pc 直链，别的电脑浏览器打开
+  即可下载这个绿色包。
 
 
 东西都存在哪
@@ -120,7 +118,6 @@ CET Go —— 电脑版（绿色免安装）
   node.exe          自带的运行环境（只有完整版有）
   public\\           界面和游戏本体
   data\\             词库 + 你的记录
-  dist\\CETGo.apk    安卓安装包（可以发给同学装手机上）
 """
 
 
@@ -140,7 +137,7 @@ def find_node(explicit=None):
 
 
 def skip_public(name):
-    # 调试/自测页不进发行包（跟 APK 的规则一致）
+    # 调试/自测页不进发行包
     return name.startswith('_')
 
 
@@ -173,12 +170,6 @@ def stage_files(include_node, node_src):
         else:
             print('  !! 缺少词库 %s' % w)
 
-    # 手机安装包：绿色版自己也能给别人发手机版
-    apk = os.path.join(ROOT, 'dist', 'CETGo.apk')
-    if os.path.exists(apk):
-        os.makedirs(os.path.join(dest, 'dist'), exist_ok=True)
-        shutil.copy2(apk, os.path.join(dest, 'dist', 'CETGo.apk'))
-
     with open(os.path.join(dest, '使用说明.txt'), 'w', encoding='utf-8') as f:
         f.write(README)
 
@@ -199,12 +190,8 @@ def zip_dir(stage_dir, out_path, total_cb=None):
             for fn in sorted(files):
                 full = os.path.join(root, fn)
                 arc = os.path.relpath(full, base).replace('\\', '/')
-                # APK / 已经是压缩包的东西没必要再压一遍
-                if fn.lower().endswith('.apk'):
-                    z.write(full, arc, compress_type=zipfile.ZIP_STORED)
-                else:
-                    z.write(full, arc, compress_type=zipfile.ZIP_DEFLATED,
-                            compresslevel=9)
+                z.write(full, arc, compress_type=zipfile.ZIP_DEFLATED,
+                        compresslevel=9)
                 seen.append(arc)
     return out_path, seen
 

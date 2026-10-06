@@ -134,12 +134,9 @@ const server = http.createServer(async (req, res) => {
     /* ---------- 心跳 ---------- */
     if (pathname === '/api/ping') {
       lastPing = Date.now();
-      // 前端靠这几个字段决定要不要亮出「手机玩」按钮：
-      // 只有 --lan 启动 + 确实拿到了局域网地址时才亮。
       const urls = IS_LAN_HOST
         ? lanAddresses().map(ip => 'http://' + ip + ':' + PORT + '/')
         : [];
-      const hasApk = IS_LAN_HOST && fs.existsSync(APK_FILE);
       const hasPc = IS_LAN_HOST && fs.existsSync(PC_ZIP);
       const origin = urls.length ? urls[0].replace(/\/$/, '') : '';
       return json(res, 200, {
@@ -148,47 +145,12 @@ const server = http.createServer(async (req, res) => {
         lan: IS_LAN_HOST,
         port: PORT,
         urls,
-        apk: hasApk ? origin + '/apk' : null,
-        pc: hasPc ? origin + '/pc' : null,
-        qr: LAN_QR.app ? '/api/lan-qr.png?t=app' : null,
-        qrApk: LAN_QR.apk ? '/api/lan-qr.png?t=apk' : null,
-        qrPc: LAN_QR.pc ? '/api/lan-qr.png?t=pc' : null
+        pc: hasPc ? origin + '/pc' : null
       });
-    }
-
-    /* ---------- 手机访问的二维码 ---------- */
-    if (pathname === '/api/lan-qr.png') {
-      const t = url.searchParams.get('t');
-      const q = LAN_QR[t === 'apk' || t === 'pc' ? t : 'app'];
-      if (!q) return json(res, 404, { ok: false, error: 'no qr' });
-      res.writeHead(200, {
-        'Content-Type': 'image/png',
-        'Content-Length': q.length,
-        'Cache-Control': 'no-store'
-      });
-      return res.end(q);
-    }
-
-    /* ---------- 把打包好的安装包发给手机 ----------
-       手机连上同一个 Wi-Fi，扫「手机玩」里的码直接下载，不用数据线。
-       只在局域网模式下开放：本机自用没有这个需求，少开一个口子。 */
-    if (pathname === '/apk') {
-      if (!IS_LAN_HOST) return json(res, 404, { ok: false, error: 'not in lan mode' });
-      if (!fs.existsSync(APK_FILE)) {
-        return json(res, 404, { ok: false, error: '还没打包，先在电脑上跑 tools/build-apk.sh' });
-      }
-      const st = fs.statSync(APK_FILE);
-      res.writeHead(200, {
-        'Content-Type': 'application/vnd.android.package-archive',
-        'Content-Length': st.size,
-        'Content-Disposition': 'attachment; filename="CETGo.apk"',
-        'Cache-Control': 'no-store'
-      });
-      return fs.createReadStream(APK_FILE).pipe(res);
     }
 
     /* ---------- 把电脑版（绿色免安装包）发给别人 ----------
-       和 /apk 一个套路：手机或另一台电脑连上同一个 Wi-Fi 就能下。
+       另一台电脑连上同一个 Wi-Fi 就能下。
        包是 zip，解开双击「CET Go.vbs」就能玩，不用装 Node。 */
     if (pathname === '/pc') {
       if (!IS_LAN_HOST) return json(res, 404, { ok: false, error: 'not in lan mode' });
@@ -318,63 +280,8 @@ function lanAddresses() {
   return out.sort((a, b) => a.rank - b.rank).map(o => o.ip);
 }
 
-/* ============================================================
-   手机访问用的二维码
-   ------------------------------------------------------------
-   两张：一张指向网页版（手机浏览器直接玩），一张指向 /apk
-   （扫码直接下载安装包，不用数据线）。用 Python 的 qrcode 库生成，
-   缓存在内存里由 /api/lan-qr.png?t=app|apk 发出。
-   为什么不自己写 QR 编码器：这是纯便利性的装饰功能，不值得让这个
-   「零第三方依赖」的服务里多出两百行 Reed-Solomon。
-   生成失败（没装 Python / 没装 qrcode）就静默跳过 ——
-   前端会退化成「只显示网址，自己手输」，其余功能一切照旧。
-   ============================================================ */
-const APK_FILE = path.join(ROOT, 'dist', 'CETGo.apk');
+/* 电脑版绿色包的位置：--lan 模式下 /pc 直链把它发给同一网络的其他电脑 */
 const PC_ZIP = path.join(ROOT, 'dist', 'CETGo-PC.zip');
-const LAN_QR = { app: null, apk: null, pc: null };
-
-function pyCandidates() {
-  const list = [];
-  // 本机这台机器上装了 qrcode 的解释器优先（WorkBuddy 自带的隔离 venv）
-  try {
-    const home = require('os').homedir();
-    const venv = path.join(home, '.workbuddy', 'binaries', 'python', 'envs', 'default',
-      'Scripts', 'python.exe');
-    if (fs.existsSync(venv)) list.push({ cmd: venv, args: [] });
-  } catch (_) { /* ignore */ }
-  // 系统里常见的那几个
-  list.push({ cmd: 'py', args: ['-3'] });
-  list.push({ cmd: 'python', args: [] });
-  list.push({ cmd: 'python3', args: [] });
-  return list;
-}
-
-const QR_PY = [
-  'import sys, io, base64',
-  'try:',
-  '    import qrcode',
-  'except ImportError:',
-  '    sys.exit(3)',
-  'q = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_M, box_size=16, border=4)',
-  'q.add_data(sys.argv[1]); q.make(fit=True)',
-  'img = q.make_image(fill_color="#4c3542", back_color="#fffaf6")',
-  'buf = io.BytesIO(); img.save(buf, "PNG")',
-  'sys.stdout.write(base64.b64encode(buf.getvalue()).decode())'
-].join('\n');
-
-function makeQr(url) {
-  const { execFileSync } = require('child_process');
-  for (const c of pyCandidates()) {
-    try {
-      const out = execFileSync(c.cmd, c.args.concat(['-c', QR_PY, url]), {
-        encoding: 'utf8', timeout: 8000, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore']
-      });
-      const buf = Buffer.from(String(out).trim(), 'base64');
-      if (buf.length > 100) return buf;
-    } catch (_) { /* 换下一个解释器 */ }
-  }
-  return null;
-}
 
 server.listen(PORT, HOST, () => {
   const when = new Date().toLocaleTimeString('zh-CN', { hour12: false });
@@ -383,21 +290,8 @@ server.listen(PORT, HOST, () => {
     const ips = lanAddresses();
     if (ips.length) {
       const web = 'http://' + ips[0] + ':' + PORT + '/';
-      console.log('手机访问（同一 Wi-Fi 下打开浏览器输入）：');
+      console.log('局域网访问（同一 Wi-Fi 下的其他设备，浏览器输入）：');
       ips.forEach(ip => console.log(`    http://${ip}:${PORT}/`));
-      if (fs.existsSync(APK_FILE)) {
-        console.log(`安装包直链（手机浏览器打开即下载）：`);
-        console.log(`    ${web}apk`);
-      } else {
-        console.log('还没打包安装包 —— 先在电脑上跑 bash tools/build-apk.sh');
-      }
-      // 二维码只是「省得手输」的加分项，失败不该影响启动
-      LAN_QR.app = makeQr(web);
-      if (fs.existsSync(APK_FILE)) LAN_QR.apk = makeQr(web + 'apk');
-      if (fs.existsSync(PC_ZIP)) LAN_QR.pc = makeQr(web + 'pc');
-      console.log(LAN_QR.app
-        ? '      游戏窗口右上角的「手机玩」里有二维码，扫一下就能打开。'
-        : '      （没找到可用的 Python + qrcode，二维码不可用；地址照上面手输即可。）');
       if (fs.existsSync(PC_ZIP)) {
         console.log('电脑版绿色包（发给同学 / 另一台电脑）：');
         console.log(`    ${web}pc`);

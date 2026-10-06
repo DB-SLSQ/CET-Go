@@ -1,15 +1,16 @@
 @echo off
 rem ================================================================
-rem  CET Go  -  LAN start  (open the game on your phone)
+rem  CET Go  -  LAN start  (let other PCs download the green package)
 rem
 rem  Starts the local server bound to 0.0.0.0 so any device on the
-rem  same Wi-Fi can open it. It also stops a server that is already
-rem  running on 127.0.0.1 only, because 0.0.0.0 cannot share the port.
+rem  same Wi-Fi can reach it (game page + /pc package download).
+rem  It also stops a server that is already running on 127.0.0.1
+rem  only, because 0.0.0.0 cannot share the port.
 rem
 rem  ASCII only: do not add CJK text to this file.
 rem ================================================================
 setlocal enabledelayedexpansion
-title CET Go - LAN (phone access)
+title CET Go - LAN server
 
 set "APPDIR=%~dp0.."
 for %%I in ("%APPDIR%") do set "APPDIR=%%~fI"
@@ -42,10 +43,9 @@ ping -n 2 127.0.0.1 >nul
 
 rem ---------- show the LAN addresses ----------
 echo.
-echo   CET Go  -  open it on your phone
+echo   CET Go  -  LAN server
 echo   ------------------------------------------------------------
-echo   Make sure the phone is on the SAME Wi-Fi as this PC,
-echo   then type one of these addresses into the phone browser:
+echo   Devices on the SAME Wi-Fi can open the game at:
 echo.
 for /f "tokens=1,2 delims=:" %%a in ('ipconfig ^| findstr /c:"IPv4"') do (
   set "IP=%%b"
@@ -53,8 +53,8 @@ for /f "tokens=1,2 delims=:" %%a in ('ipconfig ^| findstr /c:"IPv4"') do (
   if not "!IP!"=="127.0.0.1" echo       http://!IP!:%PORT%/
 )
 echo.
-echo   On the phone you can also tap "Add to Home Screen" to get
-echo   an icon that opens full screen, just like an app.
+echo   Other PCs can also download the green package at:
+echo       http://!IP!:%PORT%/pc
 echo   ------------------------------------------------------------
 echo   The console window that just opened is the server.
 echo   Close it (or run tools\console-stop.bat) when you are done.
