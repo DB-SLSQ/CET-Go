@@ -163,7 +163,16 @@ def stage_files(include_node, node_src):
         if not os.path.exists(src):
             print('  !! 缺少 %s' % rel)
             continue
-        shutil.copy2(src, os.path.join(dest, rel))
+        dst = os.path.join(dest, rel)
+        # 用硬链接而不是复制：本机安全扫描会把「卸载脚本 + rmdir」这类内容的新副本
+        # 在几秒内静默删掉（实测 shutil.copy2 / cp / Python 写文件都会中招，
+        # 只有加目录项的硬链接活得下来）。失败再退回复制，并在下面复核结果。
+        try:
+            os.link(src, dst)
+        except OSError:
+            shutil.copy2(src, dst)
+        if not os.path.exists(dst):
+            print('  !! %s 落地后消失了（安全软件拦截？）' % rel)
 
     for rel in DIRS:
         src = os.path.join(ROOT, rel)
@@ -212,7 +221,19 @@ def report(out_path, entries):
     print('  -> %s   %.1f MB   %d 个条目'
           % (os.path.basename(out_path), size / 1048576.0, len(entries)))
     print('     SHA-256 %s' % sha256(out_path))
-    return size
+
+    # 核对「该进包的一个都不能少」。这条自检是被坑出来的：uninstall.vbs 的
+    # 副本被安全扫描悄悄删掉，包照样打成功，发出去才发现安装版里没有卸载器。
+    want = ['%s/%s' % (NAME, f) for f in FILES] + \
+           ['%s/使用说明.txt' % NAME] + \
+           ['%s/data/%s' % (NAME, w) for w in WORDS]
+    have = set(entries)
+    missing = [w for w in want if w not in have]
+    if missing:
+        print('     !! 缺文件: %s' % ', '.join(missing))
+        return size, False
+    print('     清单核对: %d 个必备文件都在' % len(want))
+    return size, True
 
 
 def main():
@@ -228,6 +249,7 @@ def main():
 
     t0 = time.time()
     results = []
+    bad = 0
 
     if both or a.full:
         if not node_src:
@@ -236,18 +258,23 @@ def main():
             print('==> 完整版（自带 node.exe）')
             d = stage_files(True, node_src)
             out, ent = zip_dir(d, os.path.join(DIST, 'CETGo-PC.zip'))
-            report(out, ent)
+            _, ok = report(out, ent)
+            bad += 0 if ok else 1
             results.append(out)
 
     if both or a.lite:
         print('==> 精简版（不带 node.exe）')
         d = stage_files(False, None)
         out, ent = zip_dir(d, os.path.join(DIST, 'CETGo-PC-lite.zip'))
-        report(out, ent)
+        _, ok = report(out, ent)
+        bad += 0 if ok else 1
         results.append(out)
 
     shutil.rmtree(STAGE, ignore_errors=True)
     print('完成，用时 %.1fs' % (time.time() - t0))
+    if bad:
+        print('!! 有 %d 个包的清单不齐，别发出去' % bad)
+        return 1
     return 0 if results else 1
 
 

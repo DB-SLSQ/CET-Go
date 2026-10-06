@@ -22,6 +22,7 @@
 | `CETGo-PC-lite.zip`（1.9 MB） | 对方已经装了 Node.js 时用这个 |
 
 安装版是用 Windows 自带的 `iexpress.exe` 打的（`tools/build-exe.py`），没有引入任何打包工具。
+包本身是 **x86** 的（用 `SysWOW64\iexpress.exe` 生成），32 位 / 64 位 Windows 都能双击运行。
 ⚠️ 因为没买代码签名证书，粉丝下载后第一次运行会看到 SmartScreen 蓝框，
 点「更多信息 → 仍要运行」即可（本地自己打出来的那份没有这个提示）。
 
@@ -126,8 +127,17 @@ bash tools/shot.sh              # 各屏幕截图工作台
 
 结论写进页面 `<title>`，用 `--dump-dom` 抓出来比对。**断言只写「真实会出现的状态」** —— 比如「最长的单个词条」，而不是「最长释义 + 最长单词」这种拼出来的组合，否则红线没人能修。
 
+安装版 exe 是**真的装了一遍**验的，不是只看体积：把 exe 跑起来 → 轮询 `%LOCALAPPDATA%\CETGo` 出现 → 核对 26 个文件、开始菜单两个快捷方式、`HKCU\...\Uninstall\CETGo` 的六个值、以及 `127.0.0.1:27656` 有没有被自动拉起来。
+本机 bash 不能调 `cmd.exe`，但 **Python 的 `os.startfile` 能拉起 exe**（走 ShellExecute），探针脚本放在 `_shots\` 下（不进仓库）。
+
 ## 踩过的坑（挑几条值得记的）
 
+- **IExpress 的 `AppLaunched` 绝不能写裸批处理**：wextract 会拼出 `Command.com /c <临时目录>\install.bat`，而 `command.com` 是 16 位的命令解释器，**Windows 10/11 x64 上根本不存在**，双击就弹「创建进程 `<Command.com /c ...IXP000.TMP\install.bat>` 时出错。原因：系统找不到指定的文件。」必须写成 `cmd.exe /d /c install.bat`（`/d` 跳过 AutoRun 注册表项）。`build-exe.py` 打完包会自动检查 exe 里有没有这条字符串。
+- **`iexpress.exe` 的输出架构 = 打包器自身的架构**：直接用 `System32` 那个会产出 **x64 包**，32 位 Windows 上直接报「不是有效的 Win32 应用程序」。要用 `SysWOW64\iexpress.exe` 出 x86 包（32 位系统上没有 SysWOW64，那时 System32 本身就是 x86，退回即可）。
+- **wextract 会把子进程 cwd 强制设成解包临时目录**：实测把父进程 cwd 设成 `C:\` 也一样，`%~dp0` 就是 `%TEMP%\IXP000.TMP\`。所以 `AppLaunched` 里用相对文件名是安全的，脚本内部再用 `%~dp0` 定位同目录的 `payload.zip`。
+- **35 MB 解包时那个 2 KB 的 `uninstall.vbs` 偶尔会掉**：本机装着火绒，实测多次出现「其余 25 个文件都到位、就它没有」。所以 `install.bat` 在解包后单独再解它一次（`tar -xf payload.zip CETGo/uninstall.vbs`）—— 第二次一定落地，`build-pc-zip.py` 也会核对清单，少一个就报错退出，不会闷声发出一个没有卸载器的安装包。
+- **卸载要先关游戏窗口**：`.browser`（游戏用的 Edge 配置缓存）在窗口开着时被占用，`rd /s /q` 删不掉，会剩下一个空壳目录；关掉窗口后删掉 `%LOCALAPPDATA%\CETGo` 即可。卸载器本身会先删注册表条目和两个快捷方式，再删目录，所以"设置 → 应用"里不会留残留项。
+- **`.bat` / `.vbs` 必须是纯 ASCII + CRLF**：cmd 按 ANSI 读批处理，写进去的中文注释会变乱码甚至吃掉命令行；用 Edit 工具改完一定要跑一遍归一化（`tools` 里的脚本都会自己归一化 `mklnk.vbs` / `install.bat`）。
 - **`.verse` 的高度不能用 `scrollHeight`**：题面背后那块柔光是 180% 高的绝对定位元素，会把 `scrollHeight` 顶到布局盒的 1.4 倍。拿它算「需要多少高度」等于每道题都多缩 40%。要用 `offsetHeight`，并且取舞台的**内容盒**。
 - **`will-change:transform` 会改 `offsetParent`**：轮播轨道加了它之后，子元素的 `offsetLeft` 参照系就变了，居中量要按 `getBoundingClientRect` 的中心差重算。
 - **碰撞检测不能用「撑满一行的容器」当对象**：模式指示点 `.car-dots` 是全宽 flex（圆点居中），拿它的盒子去比，水印永远被判成压住了它 —— 要比就比真正的可见单元 `.car-dot`。

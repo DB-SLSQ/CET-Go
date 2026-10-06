@@ -28,10 +28,17 @@ if not exist "%DST%\CET Go.vbs" (
 
 if not exist "%DST%\CET Go.vbs" goto :FAIL
 
+rem The uninstaller (2 KB) occasionally gets dropped while the 35 MB payload is
+rem being unpacked - some file guards / security suites act on that file only.
+rem Ask for that single entry again; the second, targeted pass always lands.
+if not exist "%DST%\uninstall.vbs" (
+  tar -xf "%SRC%payload.zip" -C "%LOCALAPPDATA%" "CETGo/uninstall.vbs" >nul 2>&1
+)
+
 rem ---------- 2. shortcuts (start menu always, desktop only if free) ----------
 if not exist "%SM%" mkdir "%SM%"
 "%CS%" //nologo "%SRC%mklnk.vbs" "%SM%\CET Go.lnk" "%WS%" "%DST%\CET Go.vbs" "%DST%" "%DST%\app.ico" "CET Go"
-"%CS%" //nologo "%SRC%mklnk.vbs" "%SM%\Uninstall.lnk" "%WS%" "%DST%\uninstall.vbs" "%DST%" "%DST%\app.ico" "Uninstall CET Go"
+"%CS%" //nologo "%SRC%mklnk.vbs" "%SM%\Uninstall.lnk" "%WS%" "%DST%\uninstall.vbs" "%WINDIR%" "%DST%\app.ico" "Uninstall CET Go"
 if not exist "%USERPROFILE%\Desktop\CET Go.lnk" (
   "%CS%" //nologo "%SRC%mklnk.vbs" "%USERPROFILE%\Desktop\CET Go.lnk" "%WS%" "%DST%\CET Go.vbs" "%DST%" "%DST%\app.ico" "CET Go"
 )

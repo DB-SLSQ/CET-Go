@@ -31,7 +31,11 @@ If fso.FolderExists(smDir) Then fso.DeleteFolder smDir, True
 
 ' 3. remove the program folder.
 '    This script itself lives inside it, so it cannot delete itself while running -
-'    hand the job to a detached cmd that waits a moment, then removes the folder.
-sh.Run "cmd /c ping -n 3 127.0.0.1 >nul & rmdir /s /q """ & appDir & """", 0, False
+'    hand the job to a detached cmd that waits a few seconds, then removes the folder.
+'    Move our working directory out of the folder first: Windows refuses to delete
+'    the current directory of a running process, and Explorer runs this script with
+'    its working directory set to the folder it lives in.
+sh.CurrentDirectory = sh.ExpandEnvironmentStrings("%TEMP%")
+sh.Run "cmd /c ping -n 5 127.0.0.1 >nul & rmdir /s /q """ & appDir & """", 0, False
 
 WScript.Echo "CET Go has been uninstalled."

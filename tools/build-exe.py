@@ -14,6 +14,7 @@
 import hashlib
 import os
 import shutil
+import struct
 import subprocess
 import sys
 
@@ -23,7 +24,18 @@ DIST = os.path.join(ROOT, 'dist')
 PAYLOAD = os.path.join(DIST, 'CETGo-PC.zip')
 TARGET = os.path.join(DIST, 'CETGo-Setup.exe')
 
-# IExpress 只认 ANSI（ASCII 安全）；中文注释写在这边没问题，写进 SED 就会乱码
+# IExpress 只认 ANSI（ASCII 安全）；中文注释写在这边没问题，写进 SED 就会乱码。
+#
+# AppLaunched 必须是 `cmd.exe /d /c install.bat`，**不能**直接写 install.bat：
+# wextract（IExpress 的自解压外壳）碰到批处理会拼出 `Command.com /c <temp>\install.bat`，
+# 而 command.com 是 16 位时代的命令解释器，Windows 10/11 x64 上**根本不存在**，
+# 于是弹「创建进程 <Command.com /c ...IXP000.TMP\install.bat> 时出错。
+# 原因：系统找不到指定的文件。」（2026-10-07 用户实测踩到）
+# 显式写 cmd.exe 后，wextract 走 CreateProcess，由系统目录找到 cmd.exe，正常执行。
+# /d 是让 cmd 跳过 AutoRun 注册表项，避免被别人的 bat 劫持。
+#
+# 另一条：cwd 由 wextract 强制设成解包临时目录（实测把父进程 cwd 设成 C:\ 也一样），
+# 所以 install.bat 用相对名能被找到，脚本内部再用 %~dp0 定位同目录的 payload.zip。
 SED = """[Version]
 Class=IEXPRESS
 SEDVersion=3
@@ -52,7 +64,7 @@ DisplayLicense=
 FinishMessage=
 TargetName={target}
 FriendlyName=CET Go 1.1
-AppLaunched=install.bat
+AppLaunched=cmd.exe /d /c install.bat
 PostInstallCmd=<None>
 AdminQuietInstCmd=
 UserQuietInstCmd=
@@ -104,11 +116,18 @@ def main():
     write_text(sed_path, SED.replace('{target}', TARGET).replace('{stage}', STAGE),
                crlf=True)
 
-    iexpress = os.path.join(os.environ.get('SystemRoot', r'C:\Windows'),
-                            'System32', 'iexpress.exe')
-    if not os.path.exists(iexpress):
-        print('!! 找不到 iexpress.exe（%s）—— Windows 自带，一般都有' % iexpress)
+    # 用 SysWOW64 里的那个（x86 版）iexpress：产出的包也是 x86 的，
+    # 32 位 / 64 位 Windows 都能双击运行。System32 里的是 x64 版，
+    # 产出的包在 32 位机器上会直接报「不是有效的 Win32 应用程序」。
+    # 32 位 Windows 上没有 SysWOW64，那时 System32 本身就是 x86 的，退回即可。
+    sysroot = os.environ.get('SystemRoot', r'C:\Windows')
+    candidates = [os.path.join(sysroot, 'SysWOW64', 'iexpress.exe'),
+                  os.path.join(sysroot, 'System32', 'iexpress.exe')]
+    iexpress = next((c for c in candidates if os.path.exists(c)), None)
+    if not iexpress:
+        print('!! 找不到 iexpress.exe —— Windows 自带，一般都有')
         return 1
+    print('==> 打包器：%s' % iexpress)
 
     if os.path.exists(TARGET):
         os.remove(TARGET)
@@ -128,7 +147,41 @@ def main():
     size = os.path.getsize(TARGET)
     print('==> CETGo-Setup.exe  %.1f MB  (%d bytes)' % (size / 1048576.0, size))
     print('    SHA-256 %s' % sha256(TARGET))
-    return 0
+
+    # 自检：PE 架构 + 内嵌的 AppLaunched 字符串 + CAB 里的文件数。
+    # 前两项是 2026-10-07 那次「Command.com 找不到」事故的护栏 —— 只要
+    # AppLaunched 又变回裸 install.bat，或者包被打成 x64 的，这里都会报警。
+    raw = open(TARGET, 'rb').read()
+    bad = 0
+
+    pe = struct.unpack_from('<I', raw, 0x3c)[0]
+    machine = struct.unpack_from('<H', raw, pe + 4)[0]
+    arch = {0x14c: 'x86（32/64 位都能跑）', 0x8664: 'x64（只能跑 64 位！）'}.get(machine, hex(machine))
+    print('    架构: %s' % arch)
+    if machine != 0x14c:
+        print('    !! 不是 x86 包 —— 换成 SysWOW64 里的 iexpress 再打')
+        bad += 1
+
+    if b'cmd.exe /d /c install.bat' in raw:
+        print('    AppLaunched: cmd.exe /d /c install.bat  (ok)')
+    else:
+        print('    !! 包里没找到 "cmd.exe /d /c install.bat" —— AppLaunched 可能又变回裸批处理了')
+        bad += 1
+
+    off = raw.rfind(b'MSCF')
+    if off < 0:
+        print('    !! 没找到 CAB')
+        bad += 1
+    else:
+        cfold, cfile = struct.unpack_from('<HH', raw, off + 26)
+        names = [n for n in (b'install.bat', b'mklnk.vbs', b'payload.zip') if n in raw[off:]]
+        print('    CAB: %d 个文件 / %d 个文件夹 | 命中 %s' %
+              (cfile, cfold, b','.join(names).decode()))
+        if cfile != 3 or len(names) != 3:
+            print('    !! CAB 内容不对，应有 install.bat + mklnk.vbs + payload.zip')
+            bad += 1
+
+    return 1 if bad else 0
 
 
 if __name__ == '__main__':
