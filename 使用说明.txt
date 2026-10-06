@@ -129,8 +129,11 @@
   public\              界面和游戏逻辑
   data\                词库 + 你的记录（state.json）
   app.ico              图标
-  dist\CETGo-PC.zip    电脑版绿色包（发给同学 / 另一台电脑）
-  tools\build-pc-zip.py    重新打包电脑版绿色包
+  dist\CETGo-Setup.exe    电脑版安装程序（推荐发给别人，双击就装好）
+  dist\CETGo-PC.zip       电脑版绿色包（发给同学 / 另一台电脑）
+  dist\CETGo-PC-lite.zip  精简绿色包（对方已装 Node.js 时用）
+  tools\build-pc-zip.py   重新打包电脑版绿色包
+  tools\build-exe.py      把绿色包再打成安装 exe（用系统自带 iexpress）
   tools\console-lan.bat    要开局域网模式的时候双击它
   tools\console-start.bat  排错用：会显示控制台和报错
   tools\console-stop.bat   排错用：命令行停服务
@@ -138,6 +141,24 @@
   · 完全离线，不联网、不上传任何数据。
   · 记录只存在本机 data\state.json 里。
   · 想彻底重置：删掉 data\state.json 即可。
+
+============================================================
+  安装版 exe 是怎么工作的
+============================================================
+  CETGo-Setup.exe = 系统自带 iexpress 打的自解压包（33 MB），里面只有
+  三样东西：payload.zip（绿色包本体）、install.bat、mklnk.vbs。
+
+  双击之后它做四件事：
+    1. 解压到 %LOCALAPPDATA%\CETGo（tar 解不了会自动退到 PowerShell）
+    2. 建开始菜单「CET Go」文件夹（启动 + 卸载）
+    3. 桌面图标：只有桌面上还没有 CET Go 图标时才建，不会顶掉已有的
+    4. 写 HKCU 的「应用和功能」条目 → 设置里能卸；然后自动打开游戏
+
+  卸载：开始菜单 → CET Go → Uninstall，或设置 → 应用 → CET Go → 卸载。
+  （会连 data\state.json 一起删，也就是分数和错题本。）
+
+  给别人下发时提醒一句：没买签名证书，第一次运行会弹 SmartScreen 蓝框，
+  点「更多信息 → 仍要运行」。
 
 ============================================================
   打不开怎么办

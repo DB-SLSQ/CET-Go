@@ -52,3 +52,9 @@ assets-src/
 Thumbs.db
 desktop.ini
 *.log
+
+# ============================================================
+# 打包 exe 时的暂存区（payload.zip + install.bat + mklnk.vbs + setup.sed）
+# 每次 build-exe.py 都会重建，不进仓库
+# ============================================================
+.stage-exe/

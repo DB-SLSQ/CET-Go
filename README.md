@@ -13,6 +13,18 @@
 
 ---
 
+## 怎么拿到 / 装上
+
+| 产物 | 适合 |
+|---|---|
+| `CETGo-Setup.exe`（33 MB） | **推荐**：双击 → 自动装到 `%LOCALAPPDATA%\CETGo` → 建桌面 + 开始菜单快捷方式 → 自动打开；在「设置 → 应用」里有卸载入口 |
+| `CETGo-PC.zip`（33 MB，自带 `node.exe`） | 绿色免安装：解压后双击 `CET Go.vbs` 就玩，随身带 U 盘也行 |
+| `CETGo-PC-lite.zip`（1.9 MB） | 对方已经装了 Node.js 时用这个 |
+
+安装版是用 Windows 自带的 `iexpress.exe` 打的（`tools/build-exe.py`），没有引入任何打包工具。
+⚠️ 因为没买代码签名证书，粉丝下载后第一次运行会看到 SmartScreen 蓝框，
+点「更多信息 → 仍要运行」即可（本地自己打出来的那份没有这个提示）。
+
 ## 玩法
 
 **四种模式**
@@ -89,6 +101,9 @@ docs/                  截图归档
 |---|---|
 | `selftest.js` | Node 直跑的词库 / 清洗 / 判分 / 掩码自测 + HTML id 与 JS 引用一致性 |
 | `build-pc-zip.py` | 出绿色免安装包（完整版自带 `node.exe` / 精简版不带） |
+| `build-exe.py` | 把绿色包再打成**安装版** `CETGo-Setup.exe`（系统自带 `iexpress.exe`，零三方依赖） |
+| `install.bat` · `mklnk.vbs` | 只活在安装版 exe 里的安装脚本：解包 → 建快捷方式 → 写「应用和功能」条目 → 启动 |
+| `uninstall.vbs` | 卸载器（会随包一起装进 `%LOCALAPPDATA%\CETGo`） |
 | `prep-assets.py` · `prep-modes.py` | 处理素材原图：抠白底 / 去水印 / 底部对齐 / 裁模式卡 |
 
 ## 它是怎么被验证的

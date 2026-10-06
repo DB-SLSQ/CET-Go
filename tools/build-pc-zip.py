@@ -37,6 +37,7 @@ FILES = [
     'CET Go.vbs',
     'CET Go.bat',
     'Stop CET Go.vbs',
+    'uninstall.vbs',
     'app.ico',
 ]
 # 进包的目录
