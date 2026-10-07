@@ -145,6 +145,19 @@ def main():
         return 1
 
     size = os.path.getsize(TARGET)
+    # 换图标必须放在 iexpress 之后：SED 里没有指定图标这一项，只能用资源
+    # 更新 API 事后改。改的是资源节，不影响代码，也不动里面嵌的 CAB。
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    try:
+        import set_exe_icon
+    except ImportError as e:
+        print('    !! 换图标失败：%s' % e)
+        return 1
+    if set_exe_icon.set_icon(TARGET, os.path.join(ROOT, 'app.ico')):
+        print('    !! 换图标失败')
+        return 1
+
+    size = os.path.getsize(TARGET)
     print('==> CETGo-Setup.exe  %.1f MB  (%d bytes)' % (size / 1048576.0, size))
     print('    SHA-256 %s' % sha256(TARGET))
 

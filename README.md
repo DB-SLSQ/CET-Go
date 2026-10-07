@@ -102,7 +102,8 @@ docs/                  截图归档
 |---|---|
 | `selftest.js` | Node 直跑的词库 / 清洗 / 判分 / 掩码自测 + HTML id 与 JS 引用一致性 |
 | `build-pc-zip.py` | 出绿色免安装包（完整版自带 `node.exe` / 精简版不带） |
-| `build-exe.py` | 把绿色包再打成**安装版** `CETGo-Setup.exe`（系统自带 `iexpress.exe`，零三方依赖） |
+| `build-exe.py` | 把绿色包再打成**安装版** `CETGo-Setup.exe`（系统自带 `iexpress.exe`，零三方依赖），打完自动换图标 |
+| `set_exe_icon.py` · `_peres.py` | 给 exe 换图标：删掉 IExpress 自带的图标资源，写进 `app.ico` 的 7 张图（`_peres.py` 是纯 Python 的 PE 资源解析） |
 | `install.bat` · `mklnk.vbs` | 只活在安装版 exe 里的安装脚本：解包 → 建快捷方式 → 写「应用和功能」条目 → 启动 |
 | `uninstall.vbs` | 卸载器（会随包一起装进 `%LOCALAPPDATA%\CETGo`） |
 | `prep-assets.py` · `prep-modes.py` | 处理素材原图：抠白底 / 去水印 / 底部对齐 / 裁模式卡 |
@@ -137,6 +138,9 @@ bash tools/shot.sh              # 各屏幕截图工作台
 - **wextract 会把子进程 cwd 强制设成解包临时目录**：实测把父进程 cwd 设成 `C:\` 也一样，`%~dp0` 就是 `%TEMP%\IXP000.TMP\`。所以 `AppLaunched` 里用相对文件名是安全的，脚本内部再用 `%~dp0` 定位同目录的 `payload.zip`。
 - **35 MB 解包时那个 2 KB 的 `uninstall.vbs` 偶尔会掉**：本机装着火绒，实测多次出现「其余 25 个文件都到位、就它没有」。所以 `install.bat` 在解包后单独再解它一次（`tar -xf payload.zip CETGo/uninstall.vbs`）—— 第二次一定落地，`build-pc-zip.py` 也会核对清单，少一个就报错退出，不会闷声发出一个没有卸载器的安装包。
 - **卸载要先关游戏窗口**：`.browser`（游戏用的 Edge 配置缓存）在窗口开着时被占用，`rd /s /q` 删不掉，会剩下一个空壳目录；关掉窗口后删掉 `%LOCALAPPDATA%\CETGo` 即可。卸载器本身会先删注册表条目和两个快捷方式，再删目录，所以"设置 → 应用"里不会留残留项。
+- **IExpress 的 SED 里没有「指定图标」这一项**：打出来的 exe 永远带 wextract 自己的图标。想换成 `app.ico` 只能事后用 `BeginUpdateResource` / `UpdateResource` 改资源（删掉旧的 `RT_ICON 1~13` + `RT_GROUP_ICON 3000`，写进新的）。改资源不动代码也不动里面的 CAB，实测装卸载照常。
+- **枚举 exe 资源不要用 `LoadLibraryEx`**：本地安全策略会把它当加载可执行模块拦掉，Python 端直接是 `_PyThreadState_Attach: non-NULL old thread state` 硬崩。所以读的那一步走纯 Python 解析 PE 资源表（`tools/_peres.py`），只有写用 API。
+- **`GRPICONDIRENTRY` 的 `dwBytesInRes` 是 4 字节**：256×256 的 PNG 图标有 82 KB，按 2 字节打包会直接 `struct.error: 'H' format requires 0 <= number <= 65535`。格式串是 `<BBBBHHIH`（最后再补一个 WORD 的 `nId`）。
 - **`.bat` / `.vbs` 必须是纯 ASCII + CRLF**：cmd 按 ANSI 读批处理，写进去的中文注释会变乱码甚至吃掉命令行；用 Edit 工具改完一定要跑一遍归一化（`tools` 里的脚本都会自己归一化 `mklnk.vbs` / `install.bat`）。
 - **`.verse` 的高度不能用 `scrollHeight`**：题面背后那块柔光是 180% 高的绝对定位元素，会把 `scrollHeight` 顶到布局盒的 1.4 倍。拿它算「需要多少高度」等于每道题都多缩 40%。要用 `offsetHeight`，并且取舞台的**内容盒**。
 - **`will-change:transform` 会改 `offsetParent`**：轮播轨道加了它之后，子元素的 `offsetLeft` 参照系就变了，居中量要按 `getBoundingClientRect` 的中心差重算。
